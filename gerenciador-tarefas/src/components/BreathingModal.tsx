@@ -1,300 +1,161 @@
 // src/components/BreathingModal.tsx
-import { useState, useEffect, useRef } from 'react';
-import { X, Play, Square, Info, Wind } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { X, Play } from 'lucide-react';
 
 interface Props {
   isOpen: boolean;
   onClose: () => void;
 }
 
-type PhaseType = 'inhale' | 'hold-full' | 'exhale' | 'hold-empty' | 'idle';
-
-interface Technique {
-  id: string;
-  name: string;
-  pattern: string;
-  description: string;
-  config: {
-    inhale: number;
-    holdFull: number;
-    exhale: number;
-    holdEmpty: number;
-  };
-}
-
-const TECHNIQUES: Technique[] = [
-  {
-    id: 'coherence',
-    name: 'Coerência Cardíaca',
-    pattern: '5-0-5-0',
-    description: 'Equilíbrio emocional e redução de cortisol (Ressonância 0.1Hz).',
-    config: { inhale: 5000, holdFull: 0, exhale: 5000, holdEmpty: 0 }
-  },
-  {
-    id: 'relax_478',
-    name: 'Relaxamento 4-7-8',
-    pattern: '4-7-8',
-    description: 'Técnica para insônia e ansiedade profunda.',
-    config: { inhale: 4000, holdFull: 7000, exhale: 8000, holdEmpty: 0 }
-  },
-  {
-    id: 'box',
-    name: 'Box Breathing',
-    pattern: '4-4-4-4',
-    description: 'Foco militar para controle sob estresse intenso.',
-    config: { inhale: 4000, holdFull: 4000, exhale: 4000, holdEmpty: 4000 }
-  },
-  {
-    id: 'diafragmatica',
-    name: 'Diafragmática Lenta',
-    pattern: '6-0-6-0',
-    description: 'Aumenta atividade fronto-límbica e foco.',
-    config: { inhale: 6000, holdFull: 0, exhale: 6000, holdEmpty: 0 }
-  }
-];
-
 export function BreathingModal({ isOpen, onClose }: Props) {
-  const [selectedTechId, setSelectedTechId] = useState<string>('coherence');
   const [isActive, setIsActive] = useState(false);
-  const [phase, setPhase] = useState<PhaseType>('idle');
-  const [timerText, setTimerText] = useState('');
-  
-  // Refs para limpeza
-  const timeoutRef = useRef<number | null>(null);
-  const intervalRef = useRef<number | null>(null);
+  const [phase, setPhase] = useState<'inhale' | 'hold' | 'exhale'>('inhale');
+  const [timeLeft, setTimeLeft] = useState(0);
+  const [durationMinutes, setDurationMinutes] = useState(3);
 
-  const activeTech = TECHNIQUES.find(t => t.id === selectedTechId) || TECHNIQUES[0];
-
-  // Reset ao abrir/fechar ou mudar técnica
+  // Reset ao abrir
   useEffect(() => {
-    if (!isOpen) stopBreathing();
+    if (isOpen) {
+      setIsActive(false);
+      setPhase('inhale');
+    }
   }, [isOpen]);
 
+  // Timer Geral da Sessão
   useEffect(() => {
-    if (isActive) stopBreathing(); // Para se mudar a técnica no meio
-  }, [selectedTechId]);
+    let interval: number;
+    if (isActive && timeLeft > 0) {
+      interval = setInterval(() => {
+        setTimeLeft((prev) => {
+          if (prev <= 1) {
+            setIsActive(false);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } else if (isActive && timeLeft === 0) {
+      setIsActive(false);
+    }
+    return () => clearInterval(interval);
+  }, [isActive, timeLeft]);
 
-  const stopBreathing = () => {
-    setIsActive(false);
-    setPhase('idle');
-    setTimerText('');
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    if (intervalRef.current) clearInterval(intervalRef.current);
-  };
+  // Ciclo de Respiração (4-7-8)
+  useEffect(() => {
+    let phaseTimeout: number;
+    if (isActive) {
+      const runCycle = () => {
+        setPhase('inhale'); // 4s
+        phaseTimeout = setTimeout(() => {
+          setPhase('hold'); // 7s
+          phaseTimeout = setTimeout(() => {
+            setPhase('exhale'); // 8s
+            phaseTimeout = setTimeout(() => {
+              runCycle(); // Reinicia
+            }, 8000);
+          }, 7000);
+        }, 4000);
+      };
+      runCycle();
+    }
+    return () => clearTimeout(phaseTimeout);
+  }, [isActive]);
 
   const startBreathing = () => {
+    setTimeLeft(durationMinutes * 60);
     setIsActive(true);
-    setPhase('inhale'); // Inicia o ciclo
   };
 
-  // --- MOTOR DO CICLO DE RESPIRAÇÃO ---
-  // Este useEffect roda toda vez que a 'phase' muda.
-  // Ele define o timer visual e agenda a próxima fase.
-  useEffect(() => {
-    if (!isActive || phase === 'idle') return;
-
-    let duration = 0;
-    let nextPhase: PhaseType = 'idle';
-
-    // 1. Configurar parâmetros da fase atual
-    switch (phase) {
-      case 'inhale':
-        duration = activeTech.config.inhale;
-        nextPhase = activeTech.config.holdFull > 0 ? 'hold-full' : 'exhale';
-        break;
-      case 'hold-full':
-        duration = activeTech.config.holdFull;
-        nextPhase = 'exhale';
-        break;
-      case 'exhale':
-        duration = activeTech.config.exhale;
-        nextPhase = activeTech.config.holdEmpty > 0 ? 'hold-empty' : 'inhale';
-        break;
-      case 'hold-empty':
-        duration = activeTech.config.holdEmpty;
-        nextPhase = 'inhale';
-        break;
-    }
-
-    // 2. Configurar o Contador Visual (Regressivo)
-    let timeLeft = duration / 1000;
-    setTimerText(timeLeft.toString());
-
-    if (intervalRef.current) clearInterval(intervalRef.current);
-    intervalRef.current = setInterval(() => {
-      timeLeft -= 1;
-      if (timeLeft > 0) {
-        setTimerText(timeLeft.toString());
-      } else {
-        setTimerText('');
-      }
-    }, 1000);
-
-    // 3. Agendar a troca para a próxima fase
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    timeoutRef.current = setTimeout(() => {
-      setPhase(nextPhase); // Isso dispara o useEffect novamente
-    }, duration);
-
-    return () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
-  }, [phase, isActive, activeTech]); // Dependências cruciais para o loop funcionar
-
-
-  // --- ESTILOS VISUAIS E ANIMAÇÃO ---
-  const getVisualState = () => {
-    let scale = 1;
-    let durationStr = '0ms';
-    let label = 'Pronto?';
-    let colorClass = 'bg-blue-100 text-blue-800'; // Idle color
-
-    if (isActive) {
-        switch (phase) {
-            case 'inhale':
-                scale = 1.7; // Expande
-                durationStr = `${activeTech.config.inhale}ms`;
-                label = 'INSPIRE';
-                colorClass = 'bg-blue-500 text-white shadow-blue-200';
-                break;
-            case 'hold-full':
-                scale = 1.7; // Mantém expandido
-                durationStr = '0ms'; // Sem transição (fixo)
-                label = 'SEGURE';
-                colorClass = 'bg-purple-500 text-white shadow-purple-200';
-                break;
-            case 'exhale':
-                scale = 1.0; // Contrai
-                durationStr = `${activeTech.config.exhale}ms`;
-                label = 'EXPIRE';
-                colorClass = 'bg-gray-200 text-gray-600';
-                break;
-            case 'hold-empty':
-                scale = 1.0; // Mantém contraído
-                durationStr = '0ms'; // Sem transição (fixo)
-                label = 'AGUARDE';
-                colorClass = 'bg-gray-800 text-white';
-                break;
-        }
-    }
-
-    return {
-        style: {
-            transform: `scale(${scale})`,
-            transition: `transform ${durationStr} linear` // 'linear' é essencial para sincronia
-        },
-        label,
-        colorClass
-    };
+  const formatTime = (seconds: number) => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}:${s.toString().padStart(2, '0')}`;
   };
-
-  const visual = getVisualState();
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-300">
-      <div className="bg-white rounded-3xl w-full max-w-4xl h-[85vh] flex flex-col md:flex-row overflow-hidden shadow-2xl">
-        
-        {/* MENU LATERAL */}
-        <div className="w-full md:w-1/3 bg-gray-50 border-r border-gray-200 p-6 flex flex-col">
-            <div className="flex justify-between items-center mb-6">
-                <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
-                    <Wind className="text-blue-600" /> Respiração
+    <div className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-500">
+      
+      {/* Botão Fechar (Sempre visível no topo) */}
+      <button onClick={onClose} className="absolute top-6 right-6 text-white/50 hover:text-white z-50">
+        <X size={32} />
+      </button>
+
+      {/* CONTEÚDO: Alternância Estrita entre Menu e Animação */}
+      {isActive ? (
+        // --- MODO ANIMAÇÃO (Tela Cheia) ---
+        <div className="absolute inset-0 flex flex-col items-center justify-center w-full h-full z-10 overflow-hidden">
+            
+            {/* Texto de Orientação */}
+            <div className="relative z-30 text-center mb-10">
+                <h2 className="text-5xl md:text-7xl font-bold text-white tracking-widest uppercase transition-all duration-500 drop-shadow-lg">
+                    {phase === 'inhale' ? 'Inspire' : phase === 'hold' ? 'Segure' : 'Expire'}
                 </h2>
-                <button onClick={onClose} className="p-2 hover:bg-gray-200 rounded-full transition-colors">
-                    <X size={20} className="text-gray-500" />
-                </button>
+                <p className="text-blue-200 mt-4 text-2xl font-mono">{formatTime(timeLeft)}</p>
             </div>
 
-            <div className="flex-1 overflow-y-auto space-y-3 pr-2">
-                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Protocolos</p>
-                {TECHNIQUES.map(tech => (
-                    <button
-                        key={tech.id}
-                        onClick={() => setSelectedTechId(tech.id)}
-                        disabled={isActive}
-                        className={`w-full text-left p-3 rounded-xl border transition-all ${
-                            selectedTechId === tech.id 
-                            ? 'bg-white border-blue-500 shadow-md ring-1 ring-blue-500' 
-                            : 'bg-white border-gray-200 hover:border-blue-300 text-gray-600 hover:bg-blue-50'
-                        } ${isActive ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    >
-                        <div className="flex justify-between items-center mb-1">
-                            <span className={`font-bold text-sm ${selectedTechId === tech.id ? 'text-blue-700' : 'text-gray-700'}`}>
-                                {tech.name}
-                            </span>
-                            <span className="text-[10px] font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-500">
-                                {tech.pattern}
-                            </span>
-                        </div>
-                        <p className="text-xs text-gray-500 leading-relaxed">
-                            {tech.description}
-                        </p>
-                    </button>
-                ))}
-            </div>
-            
-            <div className="mt-6 pt-6 border-t border-gray-200">
-                 {!isActive ? (
-                    <button 
-                        onClick={startBreathing}
-                        className="w-full py-4 rounded-xl bg-gray-900 text-white font-bold hover:bg-gray-800 transition shadow-lg flex items-center justify-center gap-2 text-lg"
-                    >
-                        <Play size={20} fill="currentColor" /> Iniciar Prática
-                    </button>
-                 ) : (
-                    <button 
-                        onClick={stopBreathing}
-                        className="w-full py-4 rounded-xl bg-white border-2 border-red-100 text-red-500 font-bold hover:bg-red-50 transition flex items-center justify-center gap-2"
-                    >
-                        <Square size={18} fill="currentColor" /> Parar
-                    </button>
-                 )}
-            </div>
-        </div>
-
-        {/* ÁREA DE ANIMAÇÃO */}
-        <div className="w-full md:w-2/3 bg-white relative flex flex-col items-center justify-center p-8 overflow-hidden">
-            
-            {/* Instrução */}
-            <div className="absolute top-10 text-center z-10">
-                <h3 className="text-4xl font-black text-gray-800 tracking-tight uppercase transition-all duration-300">
-                    {visual.label}
-                </h3>
-                <p className="text-gray-400 text-sm mt-2 font-medium">
-                    {activeTech.name}
-                </p>
-            </div>
-
-            {/* Círculo Principal */}
-            <div className="relative flex items-center justify-center">
-                {/* Guia de fundo (Tamanho Máximo) */}
-                <div className="absolute w-72 h-72 rounded-full border-2 border-dashed border-gray-100" />
-                
-                {/* Círculo Animado */}
+            {/* Círculos de Animação */}
+            <div className="relative flex items-center justify-center z-20">
+                {/* Círculo Principal que Respira */}
                 <div 
-                    className={`w-40 h-40 rounded-full flex items-center justify-center shadow-2xl relative z-20 ${visual.colorClass}`}
-                    style={visual.style}
-                >
-                    {/* Timer dentro do círculo */}
-                    {isActive && timerText && (
-                        <span className="text-4xl font-mono font-light animate-in zoom-in duration-200">
-                            {timerText}
-                        </span>
-                    )}
+                    className={`rounded-full border-4 mix-blend-screen transition-all ease-in-out will-change-transform
+                    ${phase === 'inhale' ? 'w-80 h-80 bg-blue-500/30 border-blue-400 blur-sm' : 
+                      phase === 'hold' ? 'w-80 h-80 bg-purple-500/20 border-white/60 blur-md' : 
+                      'w-20 h-20 bg-transparent border-white/20 blur-none'}`}
+                    style={{ transitionDuration: phase === 'inhale' ? '4000ms' : phase === 'hold' ? '0ms' : '8000ms' }}
+                ></div>
+                
+                {/* Ponto Central Fixo */}
+                <div className="absolute w-4 h-4 bg-white rounded-full shadow-[0_0_20px_rgba(255,255,255,1)]"></div>
+                
+                {/* Aura Externa (Efeito Glow) */}
+                <div 
+                    className={`absolute rounded-full -z-10 transition-all ease-in-out
+                     ${phase === 'inhale' ? 'w-96 h-96 opacity-50 bg-blue-600/20' : 'w-0 h-0 opacity-0'}`}
+                    style={{ transitionDuration: '4000ms' }}
+                />
+            </div>
+
+            <button 
+                onClick={() => setIsActive(false)}
+                className="mt-24 px-8 py-3 rounded-full border border-white/20 text-white/60 hover:text-white hover:border-white hover:bg-white/10 transition-all text-sm uppercase tracking-widest z-30"
+            >
+                Parar Sessão
+            </button>
+        </div>
+      ) : (
+        // --- MODO MENU (Card Centralizado) ---
+        <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-300 relative z-20">
+            <h3 className="text-2xl font-bold text-gray-800 mb-2">Pausa para Respirar</h3>
+            <p className="text-gray-500 mb-8 leading-relaxed">
+                Acalme sua mente usando a técnica 4-7-8. Inspire pelo nariz, segure e solte pela boca.
+            </p>
+
+            <div className="space-y-4 mb-8">
+                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Duração da Sessão</label>
+                <div className="grid grid-cols-3 gap-3">
+                    {[1, 3, 5].map(min => (
+                        <button 
+                            key={min}
+                            onClick={() => setDurationMinutes(min)}
+                            className={`py-3 rounded-xl font-bold transition-all ${durationMinutes === min ? 'bg-blue-600 text-white shadow-lg shadow-blue-200 scale-105' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                        >
+                            {min} min
+                        </button>
+                    ))}
                 </div>
             </div>
 
-            {/* Footer */}
-            <div className="absolute bottom-8 flex items-center gap-2 text-gray-400 text-xs max-w-md text-center px-4">
-                <Info size={14} />
-                <span>Siga o círculo: Expandir = Inspirar | Contrair = Expirar</span>
-            </div>
+            <button 
+                onClick={startBreathing}
+                className="w-full py-4 bg-gray-900 text-white rounded-2xl font-bold text-lg hover:bg-black transition-transform active:scale-95 flex items-center justify-center gap-2 shadow-xl"
+            >
+                <Play fill="currentColor" size={20} />
+                Iniciar Agora
+            </button>
         </div>
-
-      </div>
+      )}
     </div>
   );
 }
