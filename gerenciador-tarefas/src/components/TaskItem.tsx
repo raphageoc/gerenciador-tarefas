@@ -1,13 +1,13 @@
 // src/components/TaskItem.tsx
 import { useState, useRef, useEffect } from 'react';
 import { 
-  CheckSquare, Square, MoreHorizontal, CornerDownRight, 
-  Trash2, Plus, Calendar, ArrowRight 
+  CheckSquare, Square, MoreHorizontal, Plus, // Ícone Plus importado
+  Trash2, Calendar, ArrowRight, Edit2 
 } from 'lucide-react';
-// CORREÇÃO 1: Adicionado 'type' antes de Task
 import { db, type Task } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { MoveTaskModal } from './MoveTaskModal';
+import { useNavigate } from 'react-router-dom'; // Import para navegação
 
 interface Props {
   task: Task;
@@ -15,6 +15,7 @@ interface Props {
 }
 
 export function TaskItem({ task, depth = 0 }: Props) {
+  const navigate = useNavigate(); // Hook de navegação
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(task.title);
   const [showMenu, setShowMenu] = useState(false);
@@ -32,7 +33,8 @@ export function TaskItem({ task, depth = 0 }: Props) {
     return 0;
   });
 
-  const toggleStatus = async () => {
+  const toggleStatus = async (e: React.MouseEvent) => {
+    e.stopPropagation(); // Evita navegar ao clicar no checkbox
     if (!task.id) return;
     const newStatus = task.status === 'done' ? 'todo' : 'done';
     const newProgress = newStatus === 'done' ? 100 : 0;
@@ -46,7 +48,12 @@ export function TaskItem({ task, depth = 0 }: Props) {
     }
   };
 
-  const handleAddSubtask = async () => {
+  const handleNavigate = () => {
+      navigate(`/focus/${task.id}`);
+  };
+
+  const handleAddSubtask = async (e?: React.MouseEvent) => {
+    e?.stopPropagation();
     if (!task.id) return;
     await db.tasks.add({ 
       parentId: task.id, 
@@ -89,12 +96,17 @@ export function TaskItem({ task, depth = 0 }: Props) {
 
   return (
     <div className="flex flex-col animate-in fade-in duration-300">
-      <div className={`group flex items-start gap-3 py-3 px-3 rounded-xl transition-all border border-transparent hover:border-gray-100 hover:bg-white hover:shadow-sm ${task.status === 'done' ? 'opacity-60' : ''}`}>
+      <div 
+        className={`group flex items-start gap-3 py-3 px-3 rounded-xl transition-all border border-transparent hover:border-gray-100 hover:bg-white hover:shadow-sm cursor-pointer ${task.status === 'done' ? 'opacity-60' : ''}`}
+        onClick={!isEditing ? handleNavigate : undefined} // Clicar na linha navega
+      >
         
+        {/* Checkbox */}
         <button onClick={toggleStatus} className={`mt-0.5 transition-colors ${task.status === 'done' ? 'text-gray-400' : 'text-gray-300 hover:text-blue-500'}`}>
           {task.status === 'done' ? <CheckSquare size={20} /> : <Square size={20} />}
         </button>
 
+        {/* Conteúdo */}
         <div className="flex-1 min-w-0">
           {isEditing ? (
             <input 
@@ -104,13 +116,15 @@ export function TaskItem({ task, depth = 0 }: Props) {
               onChange={(e) => setEditTitle(e.target.value)}
               onBlur={handleSave}
               onKeyDown={(e) => e.key === 'Enter' && handleSave()}
+              onClick={(e) => e.stopPropagation()} // Não navegar ao clicar no input
             />
           ) : (
             <div className="flex flex-col gap-1">
-                <span onClick={() => setIsEditing(true)} className={`text-sm font-medium cursor-text leading-tight ${task.status === 'done' ? 'text-gray-400 line-through' : 'text-gray-700'}`}>
+                <span className={`text-sm font-medium leading-tight ${task.status === 'done' ? 'text-gray-400 line-through' : 'text-gray-700'}`}>
                     {task.title}
                 </span>
                 
+                {/* Meta info e Progresso */}
                 <div className="flex items-center gap-3">
                     {task.deadline && (
                         <span className={`text-[10px] flex items-center gap-1 ${new Date(task.deadline) < new Date() && task.status !== 'done' ? 'text-red-500 font-bold' : 'text-gray-400'}`}>
@@ -130,20 +144,28 @@ export function TaskItem({ task, depth = 0 }: Props) {
           )}
         </div>
 
-        <div className="flex items-center gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity self-start md:self-center">
+        {/* Ações */}
+        <div className="flex items-center gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity self-start md:self-center" onClick={(e) => e.stopPropagation()}>
+            
+            {/* MUDANÇA: Ícone de + para adicionar subtarefa */}
             <button onClick={handleAddSubtask} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Adicionar Subtarefa">
-                <CornerDownRight size={16} />
+                <Plus size={18} />
             </button>
+            
             <button onClick={() => setIsMoveModalOpen(true)} className="p-1.5 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors" title="Mover Tarefa">
-                <ArrowRight size={16} />
+                <ArrowRight size={18} />
             </button>
             
             <div className="relative" ref={menuRef}>
                 <button onClick={() => setShowMenu(!showMenu)} className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
-                    <MoreHorizontal size={16} />
+                    <MoreHorizontal size={18} />
                 </button>
                 {showMenu && (
                     <div className="absolute right-0 top-full mt-1 w-32 bg-white rounded-xl shadow-xl border border-gray-100 py-1 z-50 animate-in fade-in zoom-in-95 duration-100">
+                        {/* Opção de Editar movida para cá */}
+                        <button onClick={() => { setIsEditing(true); setShowMenu(false); }} className="w-full text-left px-3 py-2 text-xs text-gray-600 hover:bg-gray-50 flex items-center gap-2">
+                            <Edit2 size={14} /> Editar
+                        </button>
                         <button onClick={handleDelete} className="w-full text-left px-3 py-2 text-xs text-red-600 hover:bg-red-50 flex items-center gap-2">
                             <Trash2 size={14} /> Excluir
                         </button>
@@ -153,15 +175,11 @@ export function TaskItem({ task, depth = 0 }: Props) {
         </div>
       </div>
 
+      {/* Subtarefas */}
       <div className="pl-4 ml-3 border-l border-gray-100 space-y-1">
         {sortedSubtasks?.map(subtask => (
           <TaskItem key={subtask.id} task={subtask} depth={depth + 1} />
         ))}
-        {subtasks && subtasks.length > 0 && (
-            <button onClick={handleAddSubtask} className="flex items-center gap-2 text-[11px] text-gray-400 hover:text-blue-600 py-2 px-2 hover:bg-blue-50 rounded-lg w-fit transition-colors mt-1 opacity-0 group-hover:opacity-100 duration-200">
-                <Plus size={12} /> Adicionar passo
-            </button>
-        )}
       </div>
 
       <MoveTaskModal 
