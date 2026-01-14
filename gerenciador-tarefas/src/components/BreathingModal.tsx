@@ -48,6 +48,7 @@ const TECHNIQUES = [
 
 export function BreathingModal({ isOpen, onClose }: Props) {
   const [isActive, setIsActive] = useState(false);
+  const [isPreparing, setIsPreparing] = useState(false);
   const [selectedTechId, setSelectedTechId] = useState('4-7-8');
   const [durationMinutes, setDurationMinutes] = useState(3);
   
@@ -55,6 +56,7 @@ export function BreathingModal({ isOpen, onClose }: Props) {
   const [timeLeft, setTimeLeft] = useState(0);
   
   const cycleTimeoutRef = useRef<number | null>(null);
+  const prepareTimeoutRef = useRef<number | null>(null);
   const isRunningRef = useRef(false);
 
   const currentTech = TECHNIQUES.find(t => t.id === selectedTechId) || TECHNIQUES[0];
@@ -63,13 +65,14 @@ export function BreathingModal({ isOpen, onClose }: Props) {
   useEffect(() => {
     if (isOpen) {
       setIsActive(false);
+      setIsPreparing(false);
       isRunningRef.current = false;
     }
   }, [isOpen]);
 
   useEffect(() => {
     let interval: number;
-    if (isActive && timeLeft > 0) {
+    if (isActive && !isPreparing && timeLeft > 0) {
       interval = setInterval(() => {
         setTimeLeft((prev) => {
           if (prev <= 1) {
@@ -81,7 +84,7 @@ export function BreathingModal({ isOpen, onClose }: Props) {
       }, 1000);
     }
     return () => clearInterval(interval);
-  }, [isActive, timeLeft]);
+  }, [isActive, isPreparing, timeLeft]);
 
   const runCycleStep = (stepIndex: number) => {
     if (!isRunningRef.current) return;
@@ -100,20 +103,28 @@ export function BreathingModal({ isOpen, onClose }: Props) {
   const startSession = () => {
     setTimeLeft(durationMinutes * 60);
     setIsActive(true);
+    setIsPreparing(true);
     isRunningRef.current = true;
     setCurrentStepIndex(0);
-    runCycleStep(0);
+
+    prepareTimeoutRef.current = setTimeout(() => {
+        setIsPreparing(false);
+        runCycleStep(0);
+    }, 1500);
   };
 
   const stopSession = () => {
     setIsActive(false);
+    setIsPreparing(false);
     isRunningRef.current = false;
     if (cycleTimeoutRef.current) clearTimeout(cycleTimeoutRef.current);
+    if (prepareTimeoutRef.current) clearTimeout(prepareTimeoutRef.current);
   };
 
   useEffect(() => {
     return () => {
       if (cycleTimeoutRef.current) clearTimeout(cycleTimeoutRef.current);
+      if (prepareTimeoutRef.current) clearTimeout(prepareTimeoutRef.current);
     };
   }, []);
 
@@ -123,15 +134,20 @@ export function BreathingModal({ isOpen, onClose }: Props) {
     return `${m}:${s.toString().padStart(2, '0')}`;
   };
 
-  // CORREÇÃO: Função simplificada removendo variáveis não usadas
   const getCircleStyle = () => {
+    if (isPreparing) {
+        return {
+            transform: 'scale(1)',
+            transition: 'transform 0.5s ease-out',
+            opacity: 1
+        };
+    }
+
     const phase = currentStep.phase;
     const duration = currentStep.ms;
 
-    // Define se deve estar expandido (Inspire/Hold) ou contraído (Exhale)
     const isExpanded = phase === 'inhale' || phase === 'hold';
     
-    // Define opacidade sutil para feedback visual extra
     let opacity = 1;
     if (phase === 'hold' || phase === 'hold_empty') opacity = 0.8;
     
@@ -147,11 +163,16 @@ export function BreathingModal({ isOpen, onClose }: Props) {
   return (
     <div className="fixed inset-0 z-[100] bg-black/95 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-500">
       
-      <button onClick={onClose} className="absolute top-6 right-6 text-white/50 hover:text-white z-50">
+      {/* Botão Fechar Superior (X) */}
+      <button 
+        onClick={onClose} 
+        className={`absolute top-6 right-6 z-50 transition-colors ${isActive ? 'text-white/50 hover:text-white' : 'text-gray-400 hover:text-gray-600'}`}
+      >
         <X size={32} />
       </button>
 
       {isActive ? (
+        // --- MODO ANIMAÇÃO ---
         <div className="absolute inset-0 flex flex-col items-center justify-center w-full h-full overflow-hidden">
             
             <div className="relative z-30 text-center mb-16">
@@ -159,19 +180,24 @@ export function BreathingModal({ isOpen, onClose }: Props) {
                     {currentTech.name}
                 </p>
                 <h2 className="text-5xl md:text-7xl font-bold text-white tracking-widest uppercase transition-all duration-300 drop-shadow-2xl">
-                    {currentStep.label}
+                    {isPreparing ? 'Prepare-se...' : currentStep.label}
                 </h2>
-                <div className="mt-6 inline-flex items-center gap-2 bg-white/10 px-4 py-1 rounded-full text-blue-200">
-                    <Clock size={16} />
-                    <span className="font-mono text-xl">{formatTime(timeLeft)}</span>
-                </div>
+                {!isPreparing && (
+                    <div className="mt-6 inline-flex items-center gap-2 bg-white/10 px-4 py-1 rounded-full text-blue-200">
+                        <Clock size={16} />
+                        <span className="font-mono text-xl">{formatTime(timeLeft)}</span>
+                    </div>
+                )}
             </div>
 
             <div className="relative flex items-center justify-center z-20">
-                <div className="absolute w-24 h-24 rounded-full border border-white/10 scale-[2.5]" />
-                <div className="absolute w-24 h-24 rounded-full border border-white/5" />
+                {!isPreparing && (
+                    <>
+                        <div className="absolute w-24 h-24 rounded-full border border-white/10 scale-[2.5]" />
+                        <div className="absolute w-24 h-24 rounded-full border border-white/5" />
+                    </>
+                )}
 
-                {/* Círculo Principal Animado */}
                 <div 
                     className="w-24 h-24 rounded-full bg-blue-500/20 border-4 border-blue-400 shadow-[0_0_50px_rgba(59,130,246,0.5)] backdrop-blur-sm will-change-transform"
                     style={getCircleStyle()}
@@ -190,6 +216,7 @@ export function BreathingModal({ isOpen, onClose }: Props) {
             </button>
         </div>
       ) : (
+        // --- MODO MENU (Seleção) ---
         <div className="bg-white rounded-3xl w-full max-w-2xl shadow-2xl animate-in zoom-in-95 duration-300 relative z-20 flex flex-col md:flex-row overflow-hidden max-h-[90vh]">
             
             <div className="flex-1 p-6 md:p-8 bg-gray-50 border-r border-gray-100 overflow-y-auto">
@@ -234,7 +261,7 @@ export function BreathingModal({ isOpen, onClose }: Props) {
                     </div>
                 </div>
 
-                <div className="mt-8 pt-6 border-t border-gray-100">
+                <div className="mt-8 pt-6 border-t border-gray-100 flex flex-col gap-3">
                     <button 
                         onClick={startSession}
                         className="w-full py-4 bg-blue-600 text-white rounded-xl font-bold text-lg hover:bg-blue-700 transition-all hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-2 shadow-xl shadow-blue-200"
@@ -242,7 +269,16 @@ export function BreathingModal({ isOpen, onClose }: Props) {
                         <Play fill="currentColor" size={20} />
                         Começar
                     </button>
-                    <p className="text-center text-[10px] text-gray-400 mt-3">
+
+                    {/* NOVO BOTÃO FECHAR */}
+                    <button 
+                        onClick={onClose}
+                        className="w-full py-3 bg-gray-100 text-gray-600 rounded-xl font-bold text-sm hover:bg-gray-200 transition-colors"
+                    >
+                        Fechar
+                    </button>
+                    
+                    <p className="text-center text-[10px] text-gray-400">
                         O cronômetro da tarefa continuará rodando.
                     </p>
                 </div>
