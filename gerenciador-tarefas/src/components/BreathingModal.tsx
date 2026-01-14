@@ -7,7 +7,6 @@ interface Props {
   onClose: () => void;
 }
 
-// Definição das Técnicas
 const TECHNIQUES = [
   {
     id: '4-7-8',
@@ -15,7 +14,6 @@ const TECHNIQUES = [
     description: 'Para ansiedade e sono. Acalma o sistema nervoso.',
     icon: Wind,
     color: 'bg-blue-500',
-    // Padrão: [Fase, Duração em ms]
     steps: [
       { phase: 'inhale', label: 'Inspire', ms: 4000 },
       { phase: 'hold', label: 'Segure', ms: 7000 },
@@ -53,27 +51,22 @@ export function BreathingModal({ isOpen, onClose }: Props) {
   const [selectedTechId, setSelectedTechId] = useState('4-7-8');
   const [durationMinutes, setDurationMinutes] = useState(3);
   
-  // Estados da Animação
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [timeLeft, setTimeLeft] = useState(0);
   
-  // Refs para controle de loops e timeouts
   const cycleTimeoutRef = useRef<number | null>(null);
   const isRunningRef = useRef(false);
 
   const currentTech = TECHNIQUES.find(t => t.id === selectedTechId) || TECHNIQUES[0];
   const currentStep = currentTech.steps[currentStepIndex];
 
-  // Reset ao abrir
   useEffect(() => {
     if (isOpen) {
-      setIsActive(false);
       setIsActive(false);
       isRunningRef.current = false;
     }
   }, [isOpen]);
 
-  // Timer Geral da Sessão (Contagem Regressiva)
   useEffect(() => {
     let interval: number;
     if (isActive && timeLeft > 0) {
@@ -90,17 +83,14 @@ export function BreathingModal({ isOpen, onClose }: Props) {
     return () => clearInterval(interval);
   }, [isActive, timeLeft]);
 
-  // Lógica do Ciclo de Respiração
   const runCycleStep = (stepIndex: number) => {
     if (!isRunningRef.current) return;
 
     const technique = TECHNIQUES.find(t => t.id === selectedTechId) || TECHNIQUES[0];
     const step = technique.steps[stepIndex];
     
-    // Atualiza a UI para o passo atual
     setCurrentStepIndex(stepIndex);
 
-    // Agenda o próximo passo
     cycleTimeoutRef.current = setTimeout(() => {
       const nextIndex = (stepIndex + 1) % technique.steps.length;
       runCycleStep(nextIndex);
@@ -111,7 +101,7 @@ export function BreathingModal({ isOpen, onClose }: Props) {
     setTimeLeft(durationMinutes * 60);
     setIsActive(true);
     isRunningRef.current = true;
-    setCurrentStepIndex(0); // Começa sempre no primeiro passo (Inspire)
+    setCurrentStepIndex(0);
     runCycleStep(0);
   };
 
@@ -121,7 +111,6 @@ export function BreathingModal({ isOpen, onClose }: Props) {
     if (cycleTimeoutRef.current) clearTimeout(cycleTimeoutRef.current);
   };
 
-  // Limpeza ao desmontar
   useEffect(() => {
     return () => {
       if (cycleTimeoutRef.current) clearTimeout(cycleTimeoutRef.current);
@@ -134,38 +123,22 @@ export function BreathingModal({ isOpen, onClose }: Props) {
     return `${m}:${s.toString().padStart(2, '0')}`;
   };
 
-  // Calcula o tamanho e cor do círculo baseado na fase atual
+  // CORREÇÃO: Função simplificada removendo variáveis não usadas
   const getCircleStyle = () => {
     const phase = currentStep.phase;
     const duration = currentStep.ms;
 
-    let scale = 'scale-100'; // Tamanho base (vazio/neutro)
-    let opacity = 'opacity-20';
-    let borderColor = 'border-white/30';
+    // Define se deve estar expandido (Inspire/Hold) ou contraído (Exhale)
+    const isExpanded = phase === 'inhale' || phase === 'hold';
     
-    // CORREÇÃO: Inspire = Cresce. Expire = Diminui.
-    if (phase === 'inhale') {
-        scale = 'scale-[2.5]'; // Cresce muito
-        opacity = 'opacity-100';
-        borderColor = 'border-blue-400';
-    } else if (phase === 'hold') {
-        scale = 'scale-[2.5]'; // Mantém grande
-        opacity = 'opacity-80';
-        borderColor = 'border-white';
-    } else if (phase === 'exhale') {
-        scale = 'scale-100'; // Volta ao tamanho original
-        opacity = 'opacity-40';
-        borderColor = 'border-blue-200';
-    } else if (phase === 'hold_empty') {
-        scale = 'scale-100'; // Mantém pequeno
-        opacity = 'opacity-20';
-        borderColor = 'border-gray-400';
-    }
-
+    // Define opacidade sutil para feedback visual extra
+    let opacity = 1;
+    if (phase === 'hold' || phase === 'hold_empty') opacity = 0.8;
+    
     return {
-        transform: phase === 'inhale' || phase === 'hold' ? 'scale(2.5)' : 'scale(1)',
-        transition: `transform ${duration}ms linear`, // Movimento linear para parecer enchimento constante
-        opacity: phase === 'hold' || phase === 'hold_empty' ? 0.8 : 1
+        transform: isExpanded ? 'scale(2.5)' : 'scale(1)',
+        transition: `transform ${duration}ms linear, opacity ${duration}ms ease-in-out`,
+        opacity: opacity
     };
   };
 
@@ -179,7 +152,6 @@ export function BreathingModal({ isOpen, onClose }: Props) {
       </button>
 
       {isActive ? (
-        // --- MODO ANIMAÇÃO ---
         <div className="absolute inset-0 flex flex-col items-center justify-center w-full h-full overflow-hidden">
             
             <div className="relative z-30 text-center mb-16">
@@ -195,9 +167,7 @@ export function BreathingModal({ isOpen, onClose }: Props) {
                 </div>
             </div>
 
-            {/* Círculos de Animação */}
             <div className="relative flex items-center justify-center z-20">
-                {/* Círculo Guia Externo (Limite máximo) */}
                 <div className="absolute w-24 h-24 rounded-full border border-white/10 scale-[2.5]" />
                 <div className="absolute w-24 h-24 rounded-full border border-white/5" />
 
@@ -207,7 +177,6 @@ export function BreathingModal({ isOpen, onClose }: Props) {
                     style={getCircleStyle()}
                 />
                 
-                {/* Texto Central (Opcional, para ajudar no foco) */}
                 <div className="absolute z-40 text-xs font-bold text-white/80 uppercase tracking-widest pointer-events-none">
                     Foco
                 </div>
@@ -221,10 +190,8 @@ export function BreathingModal({ isOpen, onClose }: Props) {
             </button>
         </div>
       ) : (
-        // --- MODO MENU (Seleção) ---
         <div className="bg-white rounded-3xl w-full max-w-2xl shadow-2xl animate-in zoom-in-95 duration-300 relative z-20 flex flex-col md:flex-row overflow-hidden max-h-[90vh]">
             
-            {/* Coluna Esquerda: Técnicas */}
             <div className="flex-1 p-6 md:p-8 bg-gray-50 border-r border-gray-100 overflow-y-auto">
                 <h3 className="text-xl font-bold text-gray-800 mb-1">Técnica</h3>
                 <p className="text-xs text-gray-500 mb-4">Escolha o padrão ideal para agora.</p>
@@ -248,7 +215,6 @@ export function BreathingModal({ isOpen, onClose }: Props) {
                 </div>
             </div>
 
-            {/* Coluna Direita: Tempo e Start */}
             <div className="w-full md:w-[280px] p-6 md:p-8 flex flex-col bg-white">
                 <div className="mb-auto">
                     <h3 className="text-xl font-bold text-gray-800 mb-1">Duração</h3>
