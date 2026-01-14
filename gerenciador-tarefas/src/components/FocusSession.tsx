@@ -10,10 +10,7 @@ import {
 import { TaskResources } from './TaskResources';
 import { BreathingModal } from './BreathingModal';
 import { PreSessionModal } from './PreSessionModal';
-
-// --- IMPORTAÇÃO DO ÁUDIO LOCAL ---
-// Certifique-se que o nome do arquivo na pasta assets é exatamente este
-import brownNoiseUrl from '../assets/pinknoise.mp3'; 
+import brownNoiseUrl from '../assets/brown_noise.mp3'; 
 
 export function FocusSession() {
   const { taskId } = useParams();
@@ -25,16 +22,12 @@ export function FocusSession() {
     id ? db.tasks.where('parentId').equals(id).toArray() : []
   , [id]);
 
-  // --- ESTADOS ---
   const [isSessionActive, setIsSessionActive] = useState(false);
   const [isCountdownActive, setIsCountdownActive] = useState(false);
-  
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [showPreSession, setShowPreSession] = useState(false);
   
   const startTimeRef = useRef<Date | null>(null);
-  
-  // Refs para controle de estado síncrono
   const isSessionActiveRef = useRef(false);
   const taskIdRef = useRef(id);
 
@@ -61,31 +54,22 @@ export function FocusSession() {
     }
   }, [task]);
 
-  // --- FUNÇÃO DE SALVAMENTO SEGURA ---
   const executeFinalSave = async () => {
       if (!isSessionActiveRef.current || !startTimeRef.current || !taskIdRef.current) return;
-      
-      isSessionActiveRef.current = false; // Trava imediata
-
+      isSessionActiveRef.current = false;
       try {
           const currentId = taskIdRef.current;
           const start = startTimeRef.current;
           const now = new Date();
           const diffMs = now.getTime() - start.getTime();
-          
           if (diffMs < 1000) return;
 
           const currentTask = await db.tasks.get(currentId);
           if (currentTask) {
               const newTotalMs = (currentTask.timeSpentMs || 0) + diffMs;
               const sessions = [...(currentTask.sessions || [])];
-              
-              if (sessions.length > 0) {
-                  sessions[sessions.length - 1].end = now;
-              } else {
-                  sessions.push({ start: start, end: now, didBreathing: false });
-              }
-
+              if (sessions.length > 0) sessions[sessions.length - 1].end = now;
+              else sessions.push({ start: start, end: now, didBreathing: false });
               await db.tasks.update(currentId, { timeSpentMs: newTotalMs, sessions: sessions, status: 'paused' });
           }
       } catch (e) { console.error(e); }
@@ -108,9 +92,7 @@ export function FocusSession() {
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
         if (isSessionActiveRef.current) {
-            executeFinalSave();
-            e.preventDefault(); 
-            e.returnValue = ''; 
+            executeFinalSave(); e.preventDefault(); e.returnValue = ''; 
         }
     };
     const handleUnload = () => { if (isSessionActiveRef.current) executeFinalSave(); };
@@ -124,7 +106,6 @@ export function FocusSession() {
 
   useEffect(() => { return () => { if (isSessionActiveRef.current) executeFinalSave(); }; }, []);
 
-  // --- TIMER VISUAL ---
   useEffect(() => {
     let interval: number;
     if (isSessionActive) {
@@ -169,69 +150,30 @@ export function FocusSession() {
   const startSessionConfirmed = async (stressLevel: number | undefined, didBreathing: boolean, stressNote: string) => {
     setShowPreSession(false);
     if (!task) return;
-
     const now = new Date();
     startTimeRef.current = now;
-    
-    const newSession: any = { 
-        start: now, 
-        end: now,
-        didBreathing: didBreathing
-    };
-
-    if (stressLevel !== undefined) {
-        newSession.stressLevel = stressLevel;
-        newSession.stressNote = stressNote;
-    }
-
+    const newSession: any = { start: now, end: now, didBreathing: didBreathing };
+    if (stressLevel !== undefined) { newSession.stressLevel = stressLevel; newSession.stressNote = stressNote; }
     const newSessions = [...(task.sessions || []), newSession];
-
     await db.tasks.update(id, { status: 'in_progress', sessions: newSessions });
-    
     setIsSessionActive(true);
     if (timeLeft > 0) setIsCountdownActive(true);
   };
 
-  // --- CONTROLE DE ÁUDIO (ATUALIZADO PARA LOCAL) ---
   useEffect(() => {
     if (isPlayingAudio) {
-      if (!audioRef.current) { 
-          // Usa a variável importada do arquivo local
-          audioRef.current = new Audio(brownNoiseUrl); 
-          audioRef.current.loop = true; 
-      }
-      // Tenta tocar e captura erros (comum em navegadores se não houver interação prévia)
-      audioRef.current.play().catch(e => {
-          console.error("Erro ao tocar áudio:", e);
-          setIsPlayingAudio(false); // Desliga o botão se falhar
-      });
-    } else { 
-        audioRef.current?.pause(); 
-    }
+      if (!audioRef.current) { audioRef.current = new Audio(brownNoiseUrl); audioRef.current.loop = true; }
+      audioRef.current.play().catch(e => { console.error("Erro audio:", e); setIsPlayingAudio(false); });
+    } else { audioRef.current?.pause(); }
   }, [isPlayingAudio]);
 
-  const playAlarm = () => { 
-      if (!alarmRef.current) alarmRef.current = new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg'); 
-      alarmRef.current.play().catch(console.error); 
-  };
-
-  const formatTotalTime = (totalSeconds: number) => { 
-      const h = Math.floor(totalSeconds / 3600); 
-      const m = Math.floor((totalSeconds % 3600) / 60); 
-      const s = totalSeconds % 60; 
-      return `${h}h ${m}m ${s}s`; 
-  };
-  const formatTimer = (s: number) => { 
-      const m = Math.floor(s / 60); 
-      const sec = s % 60; 
-      return `${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`; 
-  };
-
+  const playAlarm = () => { if (!alarmRef.current) alarmRef.current = new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg'); alarmRef.current.play().catch(console.error); };
+  const formatTotalTime = (totalSeconds: number) => { const h = Math.floor(totalSeconds / 3600); const m = Math.floor((totalSeconds % 3600) / 60); const s = totalSeconds % 60; return `${h}h ${m}m ${s}s`; };
+  const formatTimer = (s: number) => { const m = Math.floor(s / 60); const sec = s % 60; return `${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`; };
   const handleTimeClick = () => { setIsCountdownActive(false); setIsEditingTime(true); setEditValue(Math.ceil(timeLeft / 60).toString()); };
   const handleTimeSave = () => { let m = parseInt(editValue); if (isNaN(m) || m < 1) m = 25; setSessionDuration(m * 60); setTimeLeft(m * 60); setIsEditingTime(false); if (isSessionActive) setIsCountdownActive(true); };
   const setSessionTime = (m: number) => { setSessionDuration(m * 60); setTimeLeft(m * 60); if (isSessionActive) setIsCountdownActive(true); };
-  
-  const handleAddSubtask = async (e: React.KeyboardEvent<HTMLInputElement>) => { if (e.key === 'Enter') { const title = e.currentTarget.value; if (!title.trim() || !task?.id) return; await db.tasks.add({ parentId: task.id, title, description: '', status: 'todo', createdAt: new Date(), timeSpentMs: 0, sessions: [], resources: [], links: [] }); e.currentTarget.value = ''; } };
+  const handleAddSubtask = async (e: React.KeyboardEvent<HTMLInputElement>) => { if (e.key === 'Enter') { const title = e.currentTarget.value; if (!title.trim() || !task?.id) return; await db.tasks.add({ parentId: task.id, title, description: '', status: 'todo', progress: 0, createdAt: new Date(), timeSpentMs: 0, sessions: [], resources: [], links: [] }); e.currentTarget.value = ''; } };
   const toggleSubtask = async (subId?: number, currentStatus?: string) => { if (!subId) return; await db.tasks.update(subId, { status: currentStatus === 'done' ? 'todo' : 'done' }); };
   const handleNoteChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => { setNotes(e.target.value); };
 
@@ -239,12 +181,15 @@ export function FocusSession() {
   const progressPercent = sessionDuration > 0 ? Math.max(0, (timeLeft / sessionDuration) * 100) : 0;
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#FDFDFD] flex flex-col h-screen overflow-hidden animate-in fade-in duration-300">
+    // MUDANÇA 1: h-screen apenas no desktop. No mobile é h-auto com min-h-screen
+    <div className="fixed inset-0 z-50 bg-[#FDFDFD] flex flex-col h-full md:h-screen md:overflow-hidden overflow-y-auto animate-in fade-in duration-300">
       <div className="absolute top-0 left-0 w-full h-[4px] bg-gray-100 z-50">
         <div className={`h-full transition-all duration-1000 ease-linear ${timeLeft === 0 ? 'bg-orange-400' : 'bg-blue-600'}`} style={{ width: `${progressPercent}%` }} />
       </div>
 
-      <div className="flex-1 flex flex-col p-4 md:p-6 max-w-[1600px] w-full mx-auto">
+      {/* Conteúdo rolável no mobile */}
+      <div className="flex-1 flex flex-col p-4 md:p-6 max-w-[1600px] w-full mx-auto pb-20 md:pb-6">
+        
         {/* HEADER */}
         <div className="flex flex-col md:flex-row items-stretch justify-between mb-6 bg-white p-3 md:p-4 rounded-2xl shadow-sm border border-gray-100 gap-4 flex-shrink-0">
             <div className="flex-1 flex flex-col justify-center items-start gap-2 min-w-0">
@@ -274,18 +219,29 @@ export function FocusSession() {
             </div>
         </div>
 
-        <div className="flex-1 grid grid-cols-12 gap-6 min-h-0">
-            <div className="col-span-12 lg:col-span-4 flex flex-col gap-6">
-                <div className="bg-white rounded-xl border border-gray-100 p-4 flex flex-col h-1/2 shadow-sm">
+        {/* LAYOUT GRID vs FLEX NO MOBILE */}
+        <div className="flex-1 grid grid-cols-1 md:grid-cols-12 gap-6 min-h-0">
+            {/* Coluna da Esquerda (Passos e Recursos) */}
+            <div className="col-span-1 md:col-span-4 flex flex-col gap-6">
+                
+                {/* Lista de Passos */}
+                <div className="bg-white rounded-xl border border-gray-100 p-4 flex flex-col h-[300px] md:h-1/2 shadow-sm">
                     <div className="flex items-center justify-between mb-3 border-b border-gray-50 pb-2"><span className="text-xs font-bold text-gray-400 uppercase tracking-widest">Lista de Passos</span><button className="text-gray-400 hover:text-gray-600"><MoreHorizontal size={14} /></button></div>
                     <div className="flex-1 overflow-y-auto space-y-1 pr-1">
                         {subtasks?.map(sub => (<div key={sub.id} onClick={() => toggleSubtask(sub.id, sub.status)} className="group flex items-start gap-3 p-2 hover:bg-gray-50 rounded-lg cursor-pointer transition-colors"><div className={`mt-0.5 ${sub.status === 'done' ? 'text-gray-300' : 'text-gray-400 group-hover:text-blue-500'}`}>{sub.status === 'done' ? <CheckSquare size={16} /> : <Square size={16} />}</div><span className={`text-sm leading-tight ${sub.status === 'done' ? 'text-gray-300 line-through' : 'text-gray-600'}`}>{sub.title}</span></div>))}
                         <div className="flex items-center gap-2 mt-2 px-2 py-1 bg-gray-50 rounded-lg focus-within:ring-2 focus-within:ring-blue-100"><Plus className="text-gray-400" size={14} /><input type="text" placeholder="Adicionar passo..." className="w-full bg-transparent text-sm outline-none text-gray-600 placeholder-gray-400" onKeyDown={handleAddSubtask} /></div>
                     </div>
                 </div>
-                <div className="flex-1 overflow-hidden"><TaskResources task={task} /></div>
+
+                {/* Recursos - MUDANÇA: Altura fixa no mobile para não sumir */}
+                <div className="h-[300px] md:flex-1 md:h-auto overflow-hidden rounded-xl border border-gray-100 shadow-sm">
+                    <TaskResources task={task} />
+                </div>
             </div>
-            <div className="col-span-12 lg:col-span-8 bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col overflow-hidden relative group">
+
+            {/* Coluna da Direita (Notas) */}
+            {/* MUDANÇA: Altura mínima no mobile */}
+            <div className="col-span-1 md:col-span-8 bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col overflow-hidden relative group min-h-[400px] md:min-h-0">
                 <div className="p-3 border-b border-gray-50 bg-gray-50/50 flex justify-between items-center"><span className="text-xs font-bold text-gray-400 uppercase tracking-widest">Diário de Bordo / Notas</span><span className="text-[10px] text-gray-400">{notes.length} caracteres</span></div>
                 <textarea value={notes} onChange={handleNoteChange} placeholder="Registre suas ideias..." className="flex-1 w-full h-full p-6 resize-none outline-none text-gray-700 text-base leading-relaxed font-normal placeholder-gray-300" spellCheck={false} />
             </div>
