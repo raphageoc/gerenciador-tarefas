@@ -76,9 +76,11 @@ export function TaskList() {
 
   // Label do botão
   const selectedLabel = useMemo(() => {
-      if (selectedProjectId === 'all') return "Todos os Projetos";
-      return allTasks?.find(t => t.id == selectedProjectId)?.title || "Selecione...";
-  }, [selectedProjectId, allTasks]);
+    if (selectedProjectId === 'all') return "Todos os Projetos";
+    // Correção: Converter selectedProjectId para Number()
+    
+    return allTasks?.find(t => t.id === Number(selectedProjectId))?.title || "Selecione...";
+}, [selectedProjectId, allTasks]);
 
   // --- LISTA VISÍVEL DE TAREFAS ---
   const visibleTasks = useMemo(() => {
@@ -87,7 +89,7 @@ export function TaskList() {
     
     // Se selecionou um projeto específico (ou subtarefa), mostra SÓ ELE
     // O componente TaskItem cuidará de expandir os filhos dele
-    const target = allTasks?.find(t => t.id == selectedProjectId);
+    const target = allTasks?.find(t => t.id === Number(selectedProjectId));
     return target ? [target] : [];
   }, [selectedProjectId, rootProjects, allTasks]);
 

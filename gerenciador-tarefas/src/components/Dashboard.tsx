@@ -4,7 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db, type Task } from '../db';
 import { 
   Clock, Activity, Calendar, Hourglass, AlertTriangle, 
-  CornerDownRight, Layers, ChevronDown, Search, X, Check, BarChart2, CalendarDays, MessageSquare, Quote, Brain, Network 
+  CornerDownRight, Layers, ChevronDown, Search, X, Check, CalendarDays, MessageSquare, Quote, Brain, Network 
 } from 'lucide-react';
 import { ProjectCalendar } from './ProjectCalendar';
 import { StressCalendar } from './StressCalendar';

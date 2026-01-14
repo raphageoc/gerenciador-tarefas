@@ -196,7 +196,8 @@ export function TaskItem({ task }: Props) {
 
             {isExpanded && hasChildren && (
                 <div className="flex flex-col ml-8 pl-2 border-l border-gray-100">
-                  {subtasks.map(subtask => (
+                  {
+                  subtasks?.map(subtask => (
                     <TaskItem key={subtask.id} task={subtask} />
                   ))}
                 </div>

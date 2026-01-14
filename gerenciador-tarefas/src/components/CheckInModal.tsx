@@ -1,177 +1,174 @@
-import { useState, useEffect } from 'react';
-import { X, Wind, Heart, ArrowRight } from 'lucide-react';
+// src/components/CheckInModal.tsx
+import { useState } from 'react';
+import { X, Activity, Wind, BookOpen, CheckCircle2, ArrowRight } from 'lucide-react';
 import { db } from '../db';
+import { BreathingModal } from './BreathingModal';
 
 interface Props {
   isOpen: boolean;
   onClose: () => void;
 }
 
-type Step = 'ask' | 'breathing_setup' | 'breathing_run' | 'journal';
-
 export function CheckInModal({ isOpen, onClose }: Props) {
-  const [step, setStep] = useState<Step>('ask');
+  const [step, setStep] = useState<'stress' | 'breathing_intro' | 'breathing_run' | 'journal' | 'done'>('stress');
+  const [stressLevel, setStressLevel] = useState(5);
+  const [note, setNote] = useState("");
   
-  // Dados do Diário
-  const [stress, setStress] = useState(5);
-  const [note, setNote] = useState('');
-
-  // Dados da Respiração
-  const [minutes, setMinutes] = useState(1);
-  const [secondsLeft, setSecondsLeft] = useState(0);
-  const [breathPhase, setBreathPhase] = useState<'inhale' | 'exhale'>('inhale');
-  const [instruction, setInstruction] = useState('Inspire...');
-
-  // Resetar estado quando abrir
-  useEffect(() => {
-    if (isOpen) {
-      setStep('ask');
-      setStress(5);
-      setNote('');
-    }
-  }, [isOpen]);
-
-  // Lógica do Timer e Animação de Respiração (Mantida igual)
-  useEffect(() => {
-    if (step !== 'breathing_run') return;
-
-    const timerInterval = setInterval(() => {
-      setSecondsLeft((prev) => {
-        if (prev <= 1) {
-          setStep('journal'); 
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    const cycleTime = 8000;
-    const breathCycle = () => {
-      setBreathPhase('inhale');
-      setInstruction('Inspire...');
-      setTimeout(() => {
-        if (step === 'breathing_run') {
-            setBreathPhase('exhale');
-            setInstruction('Expire...');
-        }
-      }, 4000);
-    };
-
-    breathCycle();
-    const breathInterval = setInterval(breathCycle, cycleTime);
-
-    return () => {
-      clearInterval(timerInterval);
-      clearInterval(breathInterval);
-    };
-  }, [step]);
-
-  const startBreathing = () => {
-    setSecondsLeft(minutes * 60);
-    setStep('breathing_run');
-  };
-
-  // --- CORREÇÃO PRINCIPAL AQUI ---
-  const handleSave = async () => {
-    try {
-      await db.checkins.add({
-        date: new Date(),
-        stressLevel: stress,
-        note: note,
-        breathingMinutes: step === 'breathing_run' || step === 'journal' ? minutes : 0
-      });
-    } catch (error) {
-      console.error("Erro ao salvar check-in:", error);
-      // Opcional: alert("Erro ao salvar no banco, verifique o console.");
-    } finally {
-      // O finally garante que o modal feche INDEPENDENTE se salvou ou deu erro
-      onClose(); 
-    }
-  };
+  // CORREÇÃO AQUI: Removido 'setMinutes' pois não estava sendo usado
+  const [minutes] = useState(3); 
+  
+  const [showBreathingExercise, setShowBreathingExercise] = useState(false);
 
   if (!isOpen) return null;
 
+  const handleNext = () => {
+    if (step === 'stress') {
+      if (stressLevel >= 7) setStep('breathing_intro');
+      else setStep('journal');
+    } else if (step === 'breathing_intro') {
+      setShowBreathingExercise(true);
+    } else if (step === 'breathing_run') {
+      setStep('journal');
+    } else if (step === 'journal') {
+      handleSave();
+    }
+  };
+
+  const handleBreathingComplete = () => {
+      setShowBreathingExercise(false);
+      setStep('journal');
+  };
+
+  const handleSave = async () => {
+    try {
+        let derivedMood = 'Neutro';
+        if (stressLevel <= 3) derivedMood = 'Relaxado';
+        else if (stressLevel >= 8) derivedMood = 'Tenso';
+
+        await db.checkins.add({
+          date: new Date().toISOString().split('T')[0],
+          timestamp: new Date(),
+          stressLevel: stressLevel,
+          notes: note,
+          breathingMinutes: step === 'breathing_run' || step === 'journal' ? minutes : 0,
+          mood: derivedMood
+        });
+        setStep('done');
+        setTimeout(() => {
+            onClose();
+            setStep('stress');
+            setStressLevel(5);
+            setNote("");
+        }, 1500);
+    } catch (error) {
+        console.error("Erro ao salvar checkin", error);
+    }
+  };
+
+  const getStressColor = (level: number) => {
+    if (level < 4) return 'bg-green-500';
+    if (level < 8) return 'bg-yellow-500';
+    return 'bg-red-500';
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden relative animate-in fade-in zoom-in duration-300">
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-300">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden relative flex flex-col max-h-[90vh]">
         
-        {step !== 'breathing_run' && (
-          <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
+        <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 z-10">
             <X size={20} />
-          </button>
-        )}
+        </button>
 
-        {step === 'ask' && (
-          <div className="p-8 text-center flex flex-col items-center gap-6">
-            <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mb-2">
-              <Wind size={32} />
-            </div>
-            <div>
-              <h2 className="text-2xl font-bold text-gray-800">Olá!</h2>
-              <p className="text-gray-500 mt-2">Gostaria de fazer um breve exercício de respiração para centrar a mente?</p>
-            </div>
-            <div className="flex flex-col gap-3 w-full">
-              <button onClick={() => setStep('breathing_setup')} className="bg-blue-600 text-white py-3 rounded-xl font-semibold hover:bg-blue-700 transition">
-                Sim, quero respirar
-              </button>
-              <button onClick={() => setStep('journal')} className="text-gray-500 py-3 rounded-xl font-medium hover:bg-gray-50 transition">
-                Não, ir direto para o check-in
-              </button>
-            </div>
-          </div>
-        )}
+        <div className="p-8 flex-1 overflow-y-auto">
+            
+            {step === 'stress' && (
+                <div className="space-y-6 text-center animate-in slide-in-from-right duration-300">
+                    <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <Activity size={32} />
+                    </div>
+                    <h2 className="text-2xl font-bold text-gray-800">Check-in Inicial</h2>
+                    <p className="text-gray-500">Qual seu nível de tensão/stress agora?</p>
+                    
+                    <div className="py-4">
+                        <div className="flex justify-between text-xs font-bold text-gray-400 mb-2 uppercase tracking-widest">
+                            <span>Zen</span>
+                            <span>Explodindo</span>
+                        </div>
+                        <input 
+                            type="range" min="0" max="10" step="1" 
+                            value={stressLevel} onChange={(e) => setStressLevel(Number(e.target.value))}
+                            className="w-full h-3 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                        />
+                        <div className={`mt-4 inline-block px-4 py-1 rounded-full text-white font-bold text-lg ${getStressColor(stressLevel)} transition-colors`}>
+                            {stressLevel} / 10
+                        </div>
+                    </div>
+                </div>
+            )}
 
-        {step === 'breathing_setup' && (
-          <div className="p-8 text-center flex flex-col items-center gap-6">
-             <h3 className="text-xl font-bold text-gray-800">Quanto tempo?</h3>
-             <div className="flex items-center gap-4">
-                <button onClick={() => setMinutes(m => Math.max(1, m - 1))} className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-xl font-bold">-</button>
-                <div className="text-4xl font-mono font-bold text-blue-600 w-24">{minutes}:00</div>
-                <button onClick={() => setMinutes(m => Math.min(10, m + 1))} className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-xl font-bold">+</button>
-             </div>
-             <button onClick={startBreathing} className="bg-blue-600 text-white w-full py-3 rounded-xl font-semibold hover:bg-blue-700 transition mt-4">
-                Iniciar
-              </button>
-          </div>
-        )}
+            {step === 'breathing_intro' && (
+                <div className="space-y-6 text-center animate-in slide-in-from-right duration-300">
+                     <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse">
+                        <Wind size={32} />
+                    </div>
+                    <h2 className="text-xl font-bold text-gray-800">Nível de tensão alto!</h2>
+                    <p className="text-gray-600">Detectamos que você está com stress elevado ({stressLevel}/10).</p>
+                    <div className="bg-blue-50 p-4 rounded-xl text-sm text-blue-800 text-left">
+                        <p>Sugerimos uma pausa respiratória de 3 minutos antes de começar. Isso pode aumentar seu foco em até 40%.</p>
+                    </div>
+                </div>
+            )}
 
-        {step === 'breathing_run' && (
-          <div className="p-10 text-center flex flex-col items-center justify-center h-96 bg-blue-50">
-            <div className="text-4xl font-mono font-bold text-blue-300 mb-8">
-              {Math.floor(secondsLeft / 60)}:{(secondsLeft % 60).toString().padStart(2, '0')}
-            </div>
-            <div className="relative flex items-center justify-center w-48 h-48">
-              <div className={`absolute bg-blue-400 rounded-full transition-all duration-[4000ms] ease-in-out opacity-80 ${breathPhase === 'inhale' ? 'w-48 h-48' : 'w-24 h-24'}`} />
-              <div className="z-10 text-white text-xl font-bold font-mono tracking-widest uppercase">{instruction}</div>
-            </div>
-            <button onClick={() => setStep('journal')} className="mt-10 text-blue-400 hover:text-blue-600 text-sm font-semibold uppercase tracking-wider">
-              Pular Exercício
-            </button>
-          </div>
-        )}
+            {step === 'journal' && (
+                <div className="space-y-4 animate-in slide-in-from-right duration-300">
+                    <div className="text-center mb-6">
+                        <div className="w-12 h-12 bg-purple-100 text-purple-600 rounded-full flex items-center justify-center mx-auto mb-2">
+                            <BookOpen size={24} />
+                        </div>
+                        <h2 className="text-lg font-bold text-gray-800">Despejo Mental</h2>
+                        <p className="text-sm text-gray-500">Tire da cabeça o que está te preocupando.</p>
+                    </div>
+                    <textarea 
+                        value={note}
+                        onChange={(e) => setNote(e.target.value)}
+                        placeholder="Estou pensando sobre..."
+                        className="w-full h-32 p-4 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-100 outline-none resize-none text-gray-700"
+                    />
+                </div>
+            )}
 
-        {step === 'journal' && (
-          <div className="p-8">
-            <h2 className="text-xl font-bold text-gray-800 mb-6 flex items-center gap-2">
-              <Heart className="text-red-500" fill="currentColor" /> Como você está?
-            </h2>
-            <div className="mb-6">
-              <div className="flex justify-between mb-2">
-                <span className="text-xs font-bold text-gray-400 uppercase">Stress</span>
-                <span className={`text-sm font-bold ${stress > 7 ? 'text-red-500' : 'text-blue-600'}`}>{stress}/10</span>
-              </div>
-              <input type="range" min="0" max="10" value={stress} onChange={(e) => setStress(Number(e.target.value))} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600" />
+            {step === 'done' && (
+                <div className="flex flex-col items-center justify-center h-full py-10 animate-in zoom-in duration-300">
+                    <CheckCircle2 size={64} className="text-green-500 mb-4" />
+                    <h2 className="text-2xl font-bold text-gray-800">Tudo pronto!</h2>
+                    <p className="text-gray-500">Bom trabalho.</p>
+                </div>
+            )}
+        </div>
+
+        {step !== 'done' && (
+            <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-end gap-3">
+                {step === 'breathing_intro' ? (
+                    <>
+                        <button onClick={() => setStep('journal')} className="px-4 py-2 text-gray-500 hover:text-gray-700 font-medium text-sm">Pular</button>
+                        <button onClick={handleNext} className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-xl font-bold shadow-lg shadow-blue-200 transition-all flex items-center gap-2">
+                            Iniciar Respiração <Wind size={18}/>
+                        </button>
+                    </>
+                ) : (
+                    <button onClick={handleNext} className="w-full bg-gray-900 hover:bg-black text-white px-6 py-3 rounded-xl font-bold shadow-lg transition-all flex items-center justify-center gap-2">
+                        {step === 'journal' ? 'Concluir Check-in' : 'Continuar'} <ArrowRight size={18}/>
+                    </button>
+                )}
             </div>
-            <div className="mb-6">
-              <label className="block text-xs font-bold text-gray-400 uppercase mb-2">O que está sentindo?</label>
-              <textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Escreva brevemente o motivo..." className="w-full h-24 p-3 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-100 resize-none text-sm" />
-            </div>
-            <button onClick={handleSave} className="w-full bg-gray-800 text-white py-3 rounded-xl font-semibold hover:bg-black transition flex items-center justify-center gap-2">
-              Salvar Check-in <ArrowRight size={18} />
-            </button>
-          </div>
         )}
       </div>
+      
+      <BreathingModal 
+        isOpen={showBreathingExercise} 
+        onClose={handleBreathingComplete} 
+      />
+
     </div>
   );
 }

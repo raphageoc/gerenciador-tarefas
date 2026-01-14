@@ -1,26 +1,22 @@
+// src/db.ts
 import Dexie, { type Table } from 'dexie';
-
-// --- Interfaces ---
-
-export interface TaskResource {
-  id: string;
-  type: 'link' | 'file' | 'folder';
-  title: string;
-  value: string; // URL ou caminho de fallback
-  handle?: FileSystemHandle; // O objeto mágico do navegador
-}
 
 export interface TaskSession {
   start: Date;
-  end?: Date;
+  end: Date;
+  stressLevel?: number;
+  stressNote?: string;
+  didBreathing?: boolean;
 }
 
-export interface CheckIn {
-  id?: number;
-  date: Date;
-  stressLevel: number; // 0-10
-  note: string;
-  breathingMinutes?: number; // Se fez o exercício
+export interface TaskResource {
+  id: string;
+  type: 'file' | 'link' | 'folder';
+  title: string;
+  value: string;
+  handle?: any;
+  content?: string;
+  createdAt: Date;
 }
 
 export interface Task {
@@ -33,25 +29,33 @@ export interface Task {
   deadline?: Date;
   timeSpentMs: number;
   sessions: TaskSession[];
-  resources: TaskResource[]; 
+  resources: TaskResource[];
+  links: string[]; 
+  progress?: number; 
 }
 
-// --- Banco de Dados ---
+export interface CheckIn {
+  id?: number;
+  date: string; // YYYY-MM-DD
+  stressLevel: number;
+  mood: string;
+  notes: string;
+  timestamp: Date;
+  // CAMPO ADICIONADO PARA CORRIGIR O ERRO:
+  breathingMinutes?: number; 
+}
 
-export class TaskManagerDB extends Dexie {
+export class FlowManagerDB extends Dexie {
   tasks!: Table<Task>;
-  checkins!: Table<CheckIn>; // Nova tabela
+  checkins!: Table<CheckIn>;
 
   constructor() {
-    super('TaskManagerDB');
-    
-    // ATENÇÃO: Se der erro de versão ao rodar, mude version(1) para version(2)
-    // Se for a primeira vez rodando, pode deixar version(1).
-    this.version(2).stores({
+    super('FlowManagerDB');
+    this.version(1).stores({
       tasks: '++id, parentId, status, createdAt',
-      checkins: '++id, date, stressLevel' // Indexado por data e stress
+      checkins: '++id, date'
     });
   }
 }
 
-export const db = new TaskManagerDB();
+export const db = new FlowManagerDB();
