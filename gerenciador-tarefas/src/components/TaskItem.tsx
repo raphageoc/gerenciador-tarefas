@@ -2,9 +2,10 @@
 import { useState, useRef, useEffect } from 'react';
 import { 
   CheckSquare, Square, MoreHorizontal, CornerDownRight, 
-  Trash2, Plus, GripVertical, Calendar, ArrowRight, CornerRightUp
+  Trash2, Plus, Calendar, ArrowRight 
 } from 'lucide-react';
-import { db, Task } from '../db';
+// CORREÇÃO 1: Adicionado 'type' antes de Task
+import { db, type Task } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { MoveTaskModal } from './MoveTaskModal';
 
@@ -25,7 +26,6 @@ export function TaskItem({ task, depth = 0 }: Props) {
     [task.id]
   );
   
-  // Ordena subtarefas: Feitas vão para o final
   const sortedSubtasks = subtasks?.sort((a, b) => {
     if (a.status === 'done' && b.status !== 'done') return 1;
     if (a.status !== 'done' && b.status === 'done') return -1;
@@ -85,19 +85,16 @@ export function TaskItem({ task, depth = 0 }: Props) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Barra de progresso visual
   const p = task.progress !== undefined ? task.progress : (task.status === 'done' ? 100 : 0);
 
   return (
     <div className="flex flex-col animate-in fade-in duration-300">
       <div className={`group flex items-start gap-3 py-3 px-3 rounded-xl transition-all border border-transparent hover:border-gray-100 hover:bg-white hover:shadow-sm ${task.status === 'done' ? 'opacity-60' : ''}`}>
         
-        {/* Checkbox */}
         <button onClick={toggleStatus} className={`mt-0.5 transition-colors ${task.status === 'done' ? 'text-gray-400' : 'text-gray-300 hover:text-blue-500'}`}>
           {task.status === 'done' ? <CheckSquare size={20} /> : <Square size={20} />}
         </button>
 
-        {/* Conteúdo */}
         <div className="flex-1 min-w-0">
           {isEditing ? (
             <input 
@@ -114,7 +111,6 @@ export function TaskItem({ task, depth = 0 }: Props) {
                     {task.title}
                 </span>
                 
-                {/* Meta info e Progresso */}
                 <div className="flex items-center gap-3">
                     {task.deadline && (
                         <span className={`text-[10px] flex items-center gap-1 ${new Date(task.deadline) < new Date() && task.status !== 'done' ? 'text-red-500 font-bold' : 'text-gray-400'}`}>
@@ -134,7 +130,6 @@ export function TaskItem({ task, depth = 0 }: Props) {
           )}
         </div>
 
-        {/* Ações - MODIFICADO AQUI: Opacity-100 no mobile, opacity-0 no desktop (md) */}
         <div className="flex items-center gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity self-start md:self-center">
             <button onClick={handleAddSubtask} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Adicionar Subtarefa">
                 <CornerDownRight size={16} />
@@ -158,7 +153,6 @@ export function TaskItem({ task, depth = 0 }: Props) {
         </div>
       </div>
 
-      {/* Subtarefas Recursivas */}
       <div className="pl-4 ml-3 border-l border-gray-100 space-y-1">
         {sortedSubtasks?.map(subtask => (
           <TaskItem key={subtask.id} task={subtask} depth={depth + 1} />

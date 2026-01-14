@@ -10,7 +10,7 @@ import {
 import { TaskResources } from './TaskResources';
 import { BreathingModal } from './BreathingModal';
 import { PreSessionModal } from './PreSessionModal';
-import brownNoiseUrl from '../assets/brown_noise.mp3'; 
+import brownNoiseUrl from '../assets/pinknoise.mp3'; 
 
 export function FocusSession() {
   const { taskId } = useParams();
