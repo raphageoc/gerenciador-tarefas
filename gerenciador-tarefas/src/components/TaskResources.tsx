@@ -1,7 +1,6 @@
 // src/components/TaskResources.tsx
-import { useRef } from 'react'; // Removi useState pois não será usado
-import { Folder, Link as LinkIcon, FileText, HardDrive, Trash2 } from 'lucide-react';
-// CORREÇÃO AQUI: Adicionado 'type' antes de Task e TaskResource
+import { useRef } from 'react';
+import { Folder, Link as LinkIcon, FileText, HardDrive, Trash2, Copy, ExternalLink } from 'lucide-react';
 import { db, type Task, type TaskResource } from '../db';
 
 interface Props {
@@ -9,7 +8,6 @@ interface Props {
 }
 
 export function TaskResources({ task }: Props) {
-  // CORREÇÃO: Removi a linha "const [isDragOver...]" que estava dando erro de não uso.
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const addResource = async (resource: TaskResource) => {
@@ -25,101 +23,81 @@ export function TaskResources({ task }: Props) {
   };
 
   const handleAddLink = async () => {
-    const url = prompt("Cole a URL do link:");
+    const url = prompt("Cole a URL do link (ex: google.com):");
     if (!url) return;
     
-    let title = url;
-    try { title = new URL(url).hostname; } catch (e) {}
+    // Garante que o link tenha https:// para abrir corretamente
+    let finalUrl = url;
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        finalUrl = `https://${url}`;
+    }
     
-    const name = prompt("Nome do Link:", title);
-    if (name) title = name;
-
+    let title = url;
+    try { title = new URL(finalUrl).hostname; } catch (e) {}
+    
+    const name = prompt("Nome do Link (opcional):", title);
+    
     await addResource({ 
         id: crypto.randomUUID(), 
         type: 'link', 
-        title, 
-        value: url,
+        title: name || title, 
+        value: finalUrl,
         createdAt: new Date()
     });
   };
 
   const handleAddFolder = async () => {
-    try {
-      // @ts-ignore
-      const handle = await window.showDirectoryPicker();
-      const path = handle.name; 
-      
-      await addResource({
-        id: crypto.randomUUID(),
-        type: 'folder',
-        title: handle.name,
-        value: path,
-        handle: handle,
-        createdAt: new Date()
-      });
-    } catch (err) {
-      console.log(err);
-      const path = prompt("Caminho da pasta (ex: C:\\Projetos):");
-      if (path) {
-          await addResource({ 
-              id: crypto.randomUUID(), 
-              type: 'folder', 
-              title: "Pasta", 
-              value: path,
-              createdAt: new Date()
-          });
-      }
+    // Solicitamos o caminho texto pois o navegador não fornece o path completo
+    const path = prompt("Cole o caminho COMPLETO da pasta aqui:\n(Vá na pasta, clique na barra de endereço, copie e cole aqui)");
+    
+    if (path) {
+        // Tenta extrair o nome da última pasta do caminho
+        // Ex: C:\Users\Raphael\Projetos -> Projetos
+        const folderName = path.split(/[\\/]/).pop() || "Pasta";
+
+        await addResource({ 
+            id: crypto.randomUUID(), 
+            type: 'folder', 
+            title: folderName, 
+            value: path, // Guarda o caminho real para copiar depois
+            createdAt: new Date()
+        });
     }
   };
 
   const handleAddFile = async () => {
-    try {
-        // @ts-ignore
-        const [handle] = await window.showOpenFilePicker();
-        const file = await handle.getFile();
-        
+    // Mesma lógica: para ter o caminho útil, precisamos que o usuário informe
+    // Usar o input file do navegador só daria o nome, sem o caminho.
+    
+    const path = prompt("Cole o caminho COMPLETO do arquivo:\n(Shift + Clique Direito no arquivo -> 'Copiar como caminho')");
+    
+    if (path) {
+        // Remove aspas que o Windows as vezes coloca ao "Copiar como caminho"
+        const cleanPath = path.replace(/"/g, '');
+        const fileName = cleanPath.split(/[\\/]/).pop() || "Arquivo";
+
         await addResource({
             id: crypto.randomUUID(),
             type: 'file',
-            title: file.name,
-            value: file.name,
-            handle: handle,
+            title: fileName,
+            value: cleanPath,
             createdAt: new Date()
         });
-    } catch (err) {
-        fileInputRef.current?.click();
-    }
-  };
-
-  const onFileInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      const path = file.name; 
-      
-      await addResource({
-        id: crypto.randomUUID(),
-        type: 'file',
-        title: file.name,
-        value: path || "Caminho não informado",
-        createdAt: new Date()
-      });
     }
   };
 
   const openResource = async (res: TaskResource) => {
       if (res.type === 'link') {
+        // Abre em nova aba
         window.open(res.value, '_blank');
-      } else if (res.handle) {
-         try {
-             // @ts-ignore
-            await res.handle.requestPermission({ mode: 'read' });
-            alert(`Acesso confirmado: ${res.title}`);
-         } catch (e) {
-             alert("Erro ao abrir permissão. Tente remover e adicionar novamente.");
-         }
       } else {
-        navigator.clipboard.writeText(res.value);
-        alert(`Caminho copiado: ${res.value}\n\nCole no explorador de arquivos.`);
+        // Para arquivos e pastas locais
+        try {
+            await navigator.clipboard.writeText(res.value);
+            alert(`Caminho copiado!\n\n"${res.value}"\n\n1. Pressione Windows + R\n2. Cole (Ctrl+V) e dê Enter`);
+        } catch (err) {
+            alert(`Caminho: ${res.value}`);
+        }
       }
   };
 
@@ -138,14 +116,15 @@ export function TaskResources({ task }: Props) {
         
         {task.resources?.map(res => (
             <div key={res.id} className="group flex items-center justify-between p-2 rounded-lg hover:bg-gray-50 border border-transparent hover:border-gray-100 transition-all cursor-pointer">
-                <div className="flex items-center gap-3 overflow-hidden" onClick={() => openResource(res)}>
-                    <div className={`p-2 rounded-lg ${res.type === 'link' ? 'bg-blue-100 text-blue-600' : res.type === 'folder' ? 'bg-yellow-100 text-yellow-600' : 'bg-gray-100 text-gray-600'}`}>
+                <div className="flex items-center gap-3 overflow-hidden flex-1" onClick={() => openResource(res)}>
+                    <div className={`p-2 rounded-lg shrink-0 ${res.type === 'link' ? 'bg-blue-100 text-blue-600' : res.type === 'folder' ? 'bg-yellow-100 text-yellow-600' : 'bg-gray-100 text-gray-600'}`}>
                         {res.type === 'link' ? <LinkIcon size={20} /> : (res.type === 'folder' ? <Folder size={20}/> : <FileText size={20}/>)}
                     </div>
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                         <p className="text-sm font-bold text-gray-700 truncate">{res.title}</p>
-                        <p className="text-[10px] text-gray-400 truncate max-w-[200px]">
-                            {res.handle ? 'Vínculo Direto' : res.value}
+                        <p className="text-[10px] text-gray-400 truncate flex items-center gap-1">
+                            {res.type === 'link' ? <ExternalLink size={10}/> : <Copy size={10}/>}
+                            {res.value}
                         </p>
                     </div>
                 </div>
@@ -158,17 +137,17 @@ export function TaskResources({ task }: Props) {
 
       <div className="p-3 bg-gray-50 border-t border-gray-100 grid grid-cols-3 gap-2">
         <button onClick={handleAddLink} className="flex flex-col items-center justify-center p-2 rounded-lg bg-white border border-gray-200 hover:border-blue-300 hover:text-blue-600 transition-colors gap-1 text-gray-600">
-            <LinkIcon size={16} /> <span className="text-[10px] font-bold">Link</span>
+            <LinkIcon size={16} /> <span className="text-[10px] font-bold">Link Web</span>
         </button>
         <button onClick={handleAddFolder} className="flex flex-col items-center justify-center p-2 rounded-lg bg-white border border-gray-200 hover:border-yellow-300 hover:text-yellow-600 transition-colors gap-1 text-gray-600">
-            <Folder size={16} /> <span className="text-[10px] font-bold">Pasta</span>
+            <Folder size={16} /> <span className="text-[10px] font-bold">Caminho Pasta</span>
         </button>
         <button onClick={handleAddFile} className="flex flex-col items-center justify-center p-2 rounded-lg bg-white border border-gray-200 hover:border-gray-400 hover:text-gray-800 transition-colors gap-1 text-gray-600">
-            <HardDrive size={16} /> <span className="text-[10px] font-bold">Arquivo</span>
+            <HardDrive size={16} /> <span className="text-[10px] font-bold">Caminho Arq</span>
         </button>
       </div>
 
-      <input type="file" ref={fileInputRef} className="hidden" onChange={onFileInputChange} />
+      <input type="file" ref={fileInputRef} className="hidden" />
     </div>
   );
 }
