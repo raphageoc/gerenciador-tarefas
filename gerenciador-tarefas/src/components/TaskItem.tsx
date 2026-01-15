@@ -1,8 +1,8 @@
 // src/components/TaskItem.tsx
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { 
   CheckSquare, Square, Plus, 
-  Trash2, Calendar, ArrowRight, Edit2 
+  Trash2, Calendar, ArrowRight, Edit2
 } from 'lucide-react';
 import { db, type Task } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -20,6 +20,9 @@ export function TaskItem({ task, depth = 0 }: Props) {
   const [editTitle, setEditTitle] = useState(task.title);
   const [isMoveModalOpen, setIsMoveModalOpen] = useState(false);
   
+  // Ref para o input de data escondido
+  const dateInputRef = useRef<HTMLInputElement>(null);
+
   const allTasks = useLiveQuery(() => db.tasks.toArray());
 
   const subtasks = useLiveQuery(
@@ -33,7 +36,7 @@ export function TaskItem({ task, depth = 0 }: Props) {
     return 0;
   });
 
-  // Cálculo Recursivo Visual (Para a barra de progresso)
+  // Cálculo Recursivo Visual
   const calculatedProgress = useMemo(() => {
     if (!allTasks || !task.id) return task.status === 'done' ? 100 : 0;
 
@@ -53,29 +56,23 @@ export function TaskItem({ task, depth = 0 }: Props) {
     return getRecursive(task.id);
   }, [allTasks, task]);
 
-  // --- LÓGICA DE ATUALIZAÇÃO RECURSIVA DO PAI ---
+  // Atualização Recursiva de Status (Pai)
   const updateParentStatusRecursively = async (parentId: number) => {
       const siblings = await db.tasks.where('parentId').equals(parentId).toArray();
       const parent = await db.tasks.get(parentId);
       
       if (!parent) return;
 
-      // Verifica se TODOS os filhos estão concluídos
       const allDone = siblings.every(t => t.status === 'done');
 
       if (allDone) {
-          // Se todos concluídos, marca o pai como concluído
           if (parent.status !== 'done') {
               await db.tasks.update(parentId, { status: 'done', progress: 100 });
-              // Recursão: Verifica o avô
               if (parent.parentId) await updateParentStatusRecursively(parent.parentId);
           }
       } else {
-          // Se algum não está concluído, garante que o pai esteja 'todo' (se estava done)
-          // Isso serve para quando você desmarca uma subtarefa, o pai deve desmarcar também
           if (parent.status === 'done') {
-              await db.tasks.update(parentId, { status: 'todo', progress: 0 }); // Ou recalcular progresso parcial se desejar
-              // Recursão: Verifica o avô
+              await db.tasks.update(parentId, { status: 'todo', progress: 0 });
               if (parent.parentId) await updateParentStatusRecursively(parent.parentId);
           }
       }
@@ -84,31 +81,10 @@ export function TaskItem({ task, depth = 0 }: Props) {
   const toggleStatus = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!task.id) return;
-
     const newStatus = task.status === 'done' ? 'todo' : 'done';
     const newProgress = newStatus === 'done' ? 100 : 0;
-
-    // 1. Atualiza a tarefa atual
     await db.tasks.update(task.id, { status: newStatus, progress: newProgress });
-
-    // 2. Se a tarefa for 'done', podemos opcionalmente marcar todos os filhos como 'done' também?
-    // Por padrão de UX, marcar o pai como done costuma marcar os filhos. Se quiser isso, descomente abaixo:
-    /*
-    if (newStatus === 'done') {
-        const children = await db.tasks.where('parentId').equals(task.id).toArray();
-        for (const child of children) {
-            if (child.id && child.status !== 'done') {
-                await db.tasks.update(child.id, { status: 'done', progress: 100 });
-                // Isso poderia disparar uma reação em cadeia complexa, mas para 1 nível funciona bem
-            }
-        }
-    }
-    */
-
-    // 3. Verifica e atualiza o Pai (Bubbling Up)
-    if (task.parentId) {
-        await updateParentStatusRecursively(task.parentId);
-    }
+    if (task.parentId) await updateParentStatusRecursively(task.parentId);
   };
 
   const handleSave = async () => {
@@ -142,7 +118,6 @@ export function TaskItem({ task, depth = 0 }: Props) {
       links: [] 
     });
     
-    // Se adicionar subtarefa em tarefa 'done', a tarefa pai deve voltar a ser 'todo'
     if (task.status === 'done') {
         await db.tasks.update(task.id, { status: 'todo', progress: 0 });
         if (task.parentId) await updateParentStatusRecursively(task.parentId);
@@ -151,8 +126,7 @@ export function TaskItem({ task, depth = 0 }: Props) {
 
   const handleDelete = async () => {
     if (confirm('Excluir esta tarefa e todas as subtarefas?')) {
-        const parentId = task.parentId; // Salva ID do pai antes de deletar
-        
+        const parentId = task.parentId;
         const deleteRecursive = async (id: number) => {
             const children = await db.tasks.where('parentId').equals(id).toArray();
             for (const child of children) {
@@ -161,13 +135,41 @@ export function TaskItem({ task, depth = 0 }: Props) {
             await db.tasks.delete(id);
         };
         if(task.id) await deleteRecursive(task.id);
+        if (parentId) await updateParentStatusRecursively(parentId);
+    }
+  };
 
-        // Se deletar um filho, verifica se o pai agora ficou completo (ex: deletou a única tarefa pendente)
-        if (parentId) {
-             await updateParentStatusRecursively(parentId);
+  // --- NOVA FUNÇÃO: Gerenciar Data ---
+  const handleDateClick = () => {
+    // Abre o seletor nativo do navegador
+    if (dateInputRef.current) {
+        // Tenta usar showPicker (mais moderno) ou click (fallback)
+        try {
+            dateInputRef.current.showPicker();
+        } catch {
+            dateInputRef.current.click();
         }
     }
   };
+
+  const handleDateChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (!task.id) return;
+      const val = e.target.value; // YYYY-MM-DD
+      
+      if (!val) {
+          // Se limpar a data
+          await db.tasks.update(task.id, { deadline: undefined });
+      } else {
+          // Adiciona T12:00 para evitar problemas de fuso horário voltando 1 dia
+          const newDate = new Date(val + 'T12:00:00'); 
+          await db.tasks.update(task.id, { deadline: newDate });
+      }
+  };
+
+  // Formata a data para o value do input (YYYY-MM-DD)
+  const dateValue = task.deadline 
+    ? new Date(task.deadline).toISOString().split('T')[0] 
+    : '';
 
   return (
     <div className="flex flex-col animate-in fade-in duration-300">
@@ -207,7 +209,6 @@ export function TaskItem({ task, depth = 0 }: Props) {
                         </span>
                     )}
                     
-                    {/* BARRA DE PROGRESSO RECURSIVA */}
                     {subtasks && subtasks.length > 0 && (
                         <div className="flex items-center gap-2">
                              <div className="w-12 h-1 bg-gray-100 rounded-full overflow-hidden">
@@ -221,21 +222,40 @@ export function TaskItem({ task, depth = 0 }: Props) {
           )}
         </div>
 
-        {/* Ações */}
+        {/* Ações Fixas */}
         <div className="flex items-center gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity self-start md:self-center" onClick={(e) => e.stopPropagation()}>
             
+            {/* Adicionar Subtarefa */}
             <button onClick={handleAddSubtask} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Adicionar Subtarefa">
                 <Plus size={18} />
             </button>
+
+            {/* --- NOVA DATA (Calendário) --- */}
+            <div className="relative">
+                <button onClick={handleDateClick} className="p-1.5 text-gray-400 hover:text-orange-500 hover:bg-orange-50 rounded-lg transition-colors" title="Definir Data Limite">
+                    <Calendar size={16} />
+                </button>
+                {/* Input escondido que é ativado pelo botão acima */}
+                <input 
+                    type="date" 
+                    ref={dateInputRef}
+                    value={dateValue}
+                    onChange={handleDateChange}
+                    className="absolute opacity-0 w-0 h-0 pointer-events-none"
+                />
+            </div>
             
+            {/* Editar */}
             <button onClick={() => setIsEditing(true)} className="p-1.5 text-gray-400 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors" title="Editar Título">
                 <Edit2 size={16} />
             </button>
 
+            {/* Mover */}
             <button onClick={() => setIsMoveModalOpen(true)} className="p-1.5 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors" title="Mover Tarefa">
                 <ArrowRight size={18} />
             </button>
             
+            {/* Excluir */}
             <button onClick={handleDelete} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Excluir">
                 <Trash2 size={16} />
             </button>
