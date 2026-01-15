@@ -1,7 +1,7 @@
 // src/components/DataManagementModal.tsx
 import { useState, useRef } from 'react';
 import { db } from '../db';
-import { X, Download, Upload, Trash2, Database, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { X, Download, Upload, Trash2, Database,  CheckCircle2 } from 'lucide-react';
 
 interface Props {
   isOpen: boolean;
