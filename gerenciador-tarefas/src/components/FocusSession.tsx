@@ -1,4 +1,5 @@
 // src/components/FocusSession.tsx
+// src/components/FocusSession.tsx
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -43,6 +44,9 @@ export function FocusSession() {
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [notes, setNotes] = useState("");
   const [isBreathing, setIsBreathing] = useState(false);
+  
+  // NOVO: Estado para controlar o input de nova subtarefa
+  const [newSubtaskTitle, setNewSubtaskTitle] = useState("");
   
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const alarmRef = useRef<HTMLAudioElement | null>(null);
@@ -104,7 +108,15 @@ export function FocusSession() {
     };
   }, []);
 
-  useEffect(() => { return () => { if (isSessionActiveRef.current) executeFinalSave(); }; }, []);
+  useEffect(() => { 
+    return () => { 
+      if (isSessionActiveRef.current) executeFinalSave(); 
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+    }; 
+  }, []);
 
   useEffect(() => {
     let interval: number;
@@ -129,9 +141,11 @@ export function FocusSession() {
   }, [isSessionActive, isCountdownActive, isEditingTime, task]);
 
   const attemptExit = () => { if (isSessionActive) setShowExitConfirm(true); else manualExit(); };
+  
   const manualExit = async () => {
     if (isSessionActive) await executeFinalSave();
     if (task && notes !== task.description) await db.tasks.update(id, { description: notes, status: 'paused' });
+    setIsPlayingAudio(false); 
     navigate('/');
   };
 
@@ -142,6 +156,9 @@ export function FocusSession() {
         setIsSessionActive(false);
         setIsCountdownActive(false);
         startTimeRef.current = null;
+        if (isPlayingAudio) {
+            setIsPlayingAudio(false);
+        }
     } else {
         setShowPreSession(true);
     }
@@ -173,7 +190,29 @@ export function FocusSession() {
   const handleTimeClick = () => { setIsCountdownActive(false); setIsEditingTime(true); setEditValue(Math.ceil(timeLeft / 60).toString()); };
   const handleTimeSave = () => { let m = parseInt(editValue); if (isNaN(m) || m < 1) m = 25; setSessionDuration(m * 60); setTimeLeft(m * 60); setIsEditingTime(false); if (isSessionActive) setIsCountdownActive(true); };
   const setSessionTime = (m: number) => { setSessionDuration(m * 60); setTimeLeft(m * 60); if (isSessionActive) setIsCountdownActive(true); };
-  const handleAddSubtask = async (e: React.KeyboardEvent<HTMLInputElement>) => { if (e.key === 'Enter') { const title = e.currentTarget.value; if (!title.trim() || !task?.id) return; await db.tasks.add({ parentId: task.id, title, description: '', status: 'todo', progress: 0, createdAt: new Date(), timeSpentMs: 0, sessions: [], resources: [], links: [] }); e.currentTarget.value = ''; } };
+  
+  // CORREÇÃO: Input Controlado para limpar o campo corretamente
+  const handleAddSubtask = async (e: React.KeyboardEvent<HTMLInputElement>) => { 
+    if (e.key === 'Enter') { 
+        if (!newSubtaskTitle.trim() || !task?.id) return; 
+        
+        await db.tasks.add({ 
+            parentId: task.id, 
+            title: newSubtaskTitle, 
+            description: '', 
+            status: 'todo', 
+            progress: 0, 
+            createdAt: new Date(), 
+            timeSpentMs: 0, 
+            sessions: [], 
+            resources: [], 
+            links: [] 
+        }); 
+        
+        setNewSubtaskTitle(""); // Limpa o estado e o input
+    } 
+  };
+
   const toggleSubtask = async (subId?: number, currentStatus?: string) => { if (!subId) return; await db.tasks.update(subId, { status: currentStatus === 'done' ? 'todo' : 'done' }); };
   const handleNoteChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => { setNotes(e.target.value); };
 
@@ -181,13 +220,11 @@ export function FocusSession() {
   const progressPercent = sessionDuration > 0 ? Math.max(0, (timeLeft / sessionDuration) * 100) : 0;
 
   return (
-    // MUDANÇA 1: h-screen apenas no desktop. No mobile é h-auto com min-h-screen
     <div className="fixed inset-0 z-50 bg-[#FDFDFD] flex flex-col h-full md:h-screen md:overflow-hidden overflow-y-auto animate-in fade-in duration-300">
       <div className="absolute top-0 left-0 w-full h-[4px] bg-gray-100 z-50">
         <div className={`h-full transition-all duration-1000 ease-linear ${timeLeft === 0 ? 'bg-orange-400' : 'bg-blue-600'}`} style={{ width: `${progressPercent}%` }} />
       </div>
 
-      {/* Conteúdo rolável no mobile */}
       <div className="flex-1 flex flex-col p-4 md:p-6 max-w-[1600px] w-full mx-auto pb-20 md:pb-6">
         
         {/* HEADER */}
@@ -219,28 +256,33 @@ export function FocusSession() {
             </div>
         </div>
 
-        {/* LAYOUT GRID vs FLEX NO MOBILE */}
         <div className="flex-1 grid grid-cols-1 md:grid-cols-12 gap-6 min-h-0">
-            {/* Coluna da Esquerda (Passos e Recursos) */}
             <div className="col-span-1 md:col-span-4 flex flex-col gap-6">
-                
-                {/* Lista de Passos */}
                 <div className="bg-white rounded-xl border border-gray-100 p-4 flex flex-col h-[300px] md:h-1/2 shadow-sm">
                     <div className="flex items-center justify-between mb-3 border-b border-gray-50 pb-2"><span className="text-xs font-bold text-gray-400 uppercase tracking-widest">Lista de Passos</span><button className="text-gray-400 hover:text-gray-600"><MoreHorizontal size={14} /></button></div>
                     <div className="flex-1 overflow-y-auto space-y-1 pr-1">
                         {subtasks?.map(sub => (<div key={sub.id} onClick={() => toggleSubtask(sub.id, sub.status)} className="group flex items-start gap-3 p-2 hover:bg-gray-50 rounded-lg cursor-pointer transition-colors"><div className={`mt-0.5 ${sub.status === 'done' ? 'text-gray-300' : 'text-gray-400 group-hover:text-blue-500'}`}>{sub.status === 'done' ? <CheckSquare size={16} /> : <Square size={16} />}</div><span className={`text-sm leading-tight ${sub.status === 'done' ? 'text-gray-300 line-through' : 'text-gray-600'}`}>{sub.title}</span></div>))}
-                        <div className="flex items-center gap-2 mt-2 px-2 py-1 bg-gray-50 rounded-lg focus-within:ring-2 focus-within:ring-blue-100"><Plus className="text-gray-400" size={14} /><input type="text" placeholder="Adicionar passo..." className="w-full bg-transparent text-sm outline-none text-gray-600 placeholder-gray-400" onKeyDown={handleAddSubtask} /></div>
+                        
+                        {/* INPUT CONTROLADO */}
+                        <div className="flex items-center gap-2 mt-2 px-2 py-1 bg-gray-50 rounded-lg focus-within:ring-2 focus-within:ring-blue-100">
+                            <Plus className="text-gray-400" size={14} />
+                            <input 
+                                type="text" 
+                                placeholder="Adicionar passo..." 
+                                className="w-full bg-transparent text-sm outline-none text-gray-600 placeholder-gray-400" 
+                                value={newSubtaskTitle}
+                                onChange={(e) => setNewSubtaskTitle(e.target.value)}
+                                onKeyDown={handleAddSubtask} 
+                            />
+                        </div>
+
                     </div>
                 </div>
-
-                {/* Recursos - MUDANÇA: Altura fixa no mobile para não sumir */}
                 <div className="h-[300px] md:flex-1 md:h-auto overflow-hidden rounded-xl border border-gray-100 shadow-sm">
                     <TaskResources task={task} />
                 </div>
             </div>
 
-            {/* Coluna da Direita (Notas) */}
-            {/* MUDANÇA: Altura mínima no mobile */}
             <div className="col-span-1 md:col-span-8 bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col overflow-hidden relative group min-h-[400px] md:min-h-0">
                 <div className="p-3 border-b border-gray-50 bg-gray-50/50 flex justify-between items-center"><span className="text-xs font-bold text-gray-400 uppercase tracking-widest">Diário de Bordo / Notas</span><span className="text-[10px] text-gray-400">{notes.length} caracteres</span></div>
                 <textarea value={notes} onChange={handleNoteChange} placeholder="Registre suas ideias..." className="flex-1 w-full h-full p-6 resize-none outline-none text-gray-700 text-base leading-relaxed font-normal placeholder-gray-300" spellCheck={false} />

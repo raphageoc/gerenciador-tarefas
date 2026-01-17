@@ -8,10 +8,15 @@ import {
 } from 'lucide-react';
 import { ProjectCalendar } from './ProjectCalendar';
 import { StressCalendar } from './StressCalendar';
+import { DayDetailModal } from './DayDetailModal'; // NOVO IMPORT
 
 export function Dashboard() {
   const [calendarDate, setCalendarDate] = useState(new Date());
   
+  // Detalhes do Dia (Modal)
+  const [selectedDay, setSelectedDay] = useState<Date | null>(null);
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+
   // Filtro de Projetos
   const [selectedProjectId, setSelectedProjectId] = useState<string>('all');
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -25,7 +30,6 @@ export function Dashboard() {
   // 1. Carregar Dados
   const allTasks = useLiveQuery(() => db.tasks.toArray());
 
-  // Fechar dropdown ao clicar fora
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
@@ -35,6 +39,17 @@ export function Dashboard() {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  const getLocalDateKey = (date: Date) => {
+    const offsetMs = date.getTimezoneOffset() * 60000;
+    const localDate = new Date(date.getTime() - offsetMs);
+    return localDate.toISOString().split('T')[0];
+  };
+
+  const handleDayClick = (date: Date) => {
+      setSelectedDay(date);
+      setIsDetailModalOpen(true);
+  };
 
   // --- OPÇÕES DO DROPDOWN ---
   const projectOptions = useMemo(() => {
@@ -117,7 +132,7 @@ export function Dashboard() {
   }, [filteredTasks, calendarDate]);
 
 
-  // --- CÁLCULO DE DADOS PARA CALENDÁRIO DE STRESS ---
+  // --- DADOS PARA CALENDÁRIOS ---
   const stressCalendarData = useMemo(() => {
     const dailyMap: Record<string, { sum: number; count: number }> = {};
     filteredTasks.forEach(task => {
@@ -126,7 +141,7 @@ export function Dashboard() {
                 if (session.stressLevel !== undefined && session.stressLevel !== null) {
                     const start = new Date(session.start);
                     if (start.getMonth() === calendarDate.getMonth() && start.getFullYear() === calendarDate.getFullYear()) {
-                        const dateStr = start.toISOString().split('T')[0];
+                        const dateStr = getLocalDateKey(start);
                         if (!dailyMap[dateStr]) dailyMap[dateStr] = { sum: 0, count: 0 };
                         dailyMap[dateStr].sum += session.stressLevel;
                         dailyMap[dateStr].count += 1;
@@ -142,16 +157,27 @@ export function Dashboard() {
     }));
   }, [filteredTasks, calendarDate]);
 
+  const hoursCalendarData = useMemo(() => {
+     const dataMap: Record<string, number> = {};
+     filteredTasks.forEach(task => {
+        if (task.sessions) {
+            task.sessions.forEach(session => {
+                const start = new Date(session.start);
+                if (start.getMonth() === calendarDate.getMonth() && start.getFullYear() === calendarDate.getFullYear()) {
+                    const dateStr = getLocalDateKey(start);
+                    const end = session.end ? new Date(session.end) : new Date();
+                    const durationMs = end.getTime() - start.getTime();
+                    dataMap[dateStr] = (dataMap[dateStr] || 0) + (durationMs / (1000 * 60 * 60));
+                }
+            });
+        }
+     });
+     return Object.entries(dataMap).map(([date, hours]) => ({ date, hours }));
+  }, [filteredTasks, calendarDate]);
+
   // --- DIÁRIO DE SENTIMENTOS ---
   const journalEntries = useMemo(() => {
-      const entries: { 
-          id: string; 
-          taskTitle: string; 
-          date: Date; 
-          stressLevel: number; 
-          note: string 
-      }[] = [];
-
+      const entries: { id: string; taskTitle: string; date: Date; stressLevel: number; note: string }[] = [];
       filteredTasks.forEach(task => {
           if (task.sessions) {
               task.sessions.forEach((session, index) => {
@@ -171,7 +197,6 @@ export function Dashboard() {
               });
           }
       });
-
       return entries.sort((a, b) => b.date.getTime() - a.date.getTime());
   }, [filteredTasks, calendarDate]);
 
@@ -183,7 +208,7 @@ export function Dashboard() {
       return 'bg-red-100 text-red-700';
   };
 
-  // --- RANKING AGREGADO (RECURSIVO) ---
+  // --- RANKING AGREGADO ---
   const rankedTasks = useMemo(() => {
     if (!allTasks) return { items: [], rangeLabel: '' };
 
@@ -191,7 +216,6 @@ export function Dashboard() {
     let startDate: Date | null = null;
     let endDate: Date | null = null;
     
-    // 1. Define o intervalo de tempo
     if (rankingMode === 'week') {
         const day = referenceDate.getDay();
         startDate = new Date(referenceDate); startDate.setDate(referenceDate.getDate() - day); startDate.setHours(0, 0, 0, 0);
@@ -201,7 +225,6 @@ export function Dashboard() {
         endDate = new Date(referenceDate.getFullYear(), referenceDate.getMonth() + 1, 0, 23, 59, 59);
     }
 
-    // 2. Função Auxiliar: Calcula tempo de uma ÚNICA tarefa neste intervalo
     const getTaskOwnTime = (task: Task) => {
         let duration = 0;
         if (rankingMode === 'all') {
@@ -218,36 +241,20 @@ export function Dashboard() {
         return duration;
     };
 
-    // 3. Função Recursiva: Calcula tempo da tarefa + todos os filhos
-    // Usamos um Map para cache simples se necessário, mas aqui faremos direto pois filteredTasks já é limitado
     const getRecursiveTime = (taskId: number): number => {
         const task = allTasks.find(t => t.id === taskId);
         if (!task) return 0;
-
         let total = getTaskOwnTime(task);
-        
-        // Acha filhos diretos
         const children = allTasks.filter(t => t.parentId === taskId);
-        children.forEach(child => {
-            if (child.id) total += getRecursiveTime(child.id);
-        });
-
+        children.forEach(child => { if (child.id) total += getRecursiveTime(child.id); });
         return total;
     };
 
-    // 4. Mapeia as tarefas filtradas e calcula o "Peso Total" (Agregado)
     const data = filteredTasks.map(task => {
         if (!task.id) return { id: 0, title: '', totalDuration: 0, selfDuration: 0 };
-        
         const totalDuration = getRecursiveTime(task.id);
         const selfDuration = getTaskOwnTime(task);
-
-        return { 
-            id: task.id, 
-            title: task.title, 
-            totalDuration, // Tempo Agregado (Pai + Filhos)
-            selfDuration   // Tempo Próprio
-        };
+        return { id: task.id, title: task.title, totalDuration, selfDuration };
     }).filter(t => t.totalDuration > 0).sort((a, b) => b.totalDuration - a.totalDuration);
     
     const maxDuration = data.length > 0 ? data[0].totalDuration : 1;
@@ -262,30 +269,10 @@ export function Dashboard() {
         })),
         rangeLabel: startDate && endDate ? `${startDate.toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit'})} a ${endDate.toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit'})}` : 'Todo o Período'
     };
-  }, [filteredTasks, allTasks, rankingMode, rankingDate]); // Dependências
+  }, [filteredTasks, allTasks, rankingMode, rankingDate]);
 
-  // Total Geral (Soma simples de todas as tarefas da lista, pois aqui queremos o "consumo de recursos" plano)
-  // Se somarmos recursivamente o total, duplicaríamos o tempo (Pai + Filho). Para o totalizador geral, somamos apenas o selfTime de cada item da lista.
   const totalFocusMs = filteredTasks.reduce((acc, t) => acc + Number(t.timeSpentMs || 0), 0);
   const totalHours = (totalFocusMs / (1000 * 60 * 60)).toFixed(1);
-
-  const hoursCalendarData = useMemo(() => {
-     const dataMap: Record<string, number> = {};
-     filteredTasks.forEach(task => {
-        if (task.sessions) {
-            task.sessions.forEach(session => {
-                const start = new Date(session.start);
-                if (start.getMonth() === calendarDate.getMonth() && start.getFullYear() === calendarDate.getFullYear()) {
-                    const dateStr = start.toISOString().split('T')[0];
-                    const end = session.end ? new Date(session.end) : new Date();
-                    const durationMs = end.getTime() - start.getTime();
-                    dataMap[dateStr] = (dataMap[dateStr] || 0) + (durationMs / (1000 * 60 * 60));
-                }
-            });
-        }
-     });
-     return Object.entries(dataMap).map(([date, hours]) => ({ date, hours }));
-  }, [filteredTasks, calendarDate]);
 
   const deadlines = useMemo(() => {
     return filteredTasks.filter(t => t.status !== 'done' && !!t.deadline).map(t => {
@@ -370,17 +357,29 @@ export function Dashboard() {
       {/* CALENDÁRIOS */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div className="h-[450px]">
-            <ProjectCalendar data={hoursCalendarData} currentDate={calendarDate} onPrevMonth={() => setCalendarDate(new Date(calendarDate.getFullYear(), calendarDate.getMonth() - 1, 1))} onNextMonth={() => setCalendarDate(new Date(calendarDate.getFullYear(), calendarDate.getMonth() + 1, 1))} />
+            <ProjectCalendar 
+                data={hoursCalendarData} 
+                currentDate={calendarDate} 
+                onPrevMonth={() => setCalendarDate(new Date(calendarDate.getFullYear(), calendarDate.getMonth() - 1, 1))} 
+                onNextMonth={() => setCalendarDate(new Date(calendarDate.getFullYear(), calendarDate.getMonth() + 1, 1))}
+                onDayClick={handleDayClick} 
+            />
         </div>
         <div className="h-[450px]">
-            <StressCalendar data={stressCalendarData} currentDate={calendarDate} onPrevMonth={() => setCalendarDate(new Date(calendarDate.getFullYear(), calendarDate.getMonth() - 1, 1))} onNextMonth={() => setCalendarDate(new Date(calendarDate.getFullYear(), calendarDate.getMonth() + 1, 1))} />
+            <StressCalendar 
+                data={stressCalendarData} 
+                currentDate={calendarDate} 
+                onPrevMonth={() => setCalendarDate(new Date(calendarDate.getFullYear(), calendarDate.getMonth() - 1, 1))} 
+                onNextMonth={() => setCalendarDate(new Date(calendarDate.getFullYear(), calendarDate.getMonth() + 1, 1))}
+                onDayClick={handleDayClick}
+            />
         </div>
       </div>
 
       {/* RANKING + PRAZOS */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         
-        {/* RANKING DE MAIOR CONSUMO (ATUALIZADO PARA MOSTRAR PAI + FILHOS) */}
+        {/* RANKING DE MAIOR CONSUMO (Agregado) */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 h-[400px] flex flex-col">
             <div className="flex flex-col gap-3 mb-4 pb-4 border-b border-gray-100">
                 <div className="flex items-center justify-between">
@@ -419,7 +418,6 @@ export function Dashboard() {
                                     <span className="font-medium text-gray-700 text-sm truncate" title={task.title}>{task.title}</span>
                                 </div>
                                 <div className="flex items-center gap-1">
-                                    {/* Exibe o tempo PRÓPRIO em pequeno e cinza */}
                                     {Number(task.selfHours) > 0 && task.hours !== task.selfHours && (
                                         <span className="text-[10px] text-gray-400 mr-1" title="Tempo executado na própria tarefa (sem filhos)">
                                             (Próprio: {task.selfHours}h)
@@ -433,13 +431,11 @@ export function Dashboard() {
                             
                             {/* BARRA DE PROGRESSO DUPLA */}
                             <div className="w-full h-2.5 bg-gray-50 rounded-full overflow-hidden flex items-center relative">
-                                {/* Barra Total (Fundo mais claro) */}
                                 <div 
                                     className="h-full bg-purple-200 absolute left-0 top-0 z-0" 
                                     style={{ width: `${task.percent}%` }} 
                                     title={`Tempo Agregado: ${task.hours}h`}
                                 />
-                                {/* Barra Própria (Frente mais escura) */}
                                 <div 
                                     className="h-full bg-purple-600 relative z-10 rounded-full" 
                                     style={{ width: `${(task.selfDuration / task.totalDuration) * task.percent}%` }} 
@@ -507,6 +503,12 @@ export function Dashboard() {
         </div>
       </div>
 
+      <DayDetailModal 
+        isOpen={isDetailModalOpen} 
+        onClose={() => setIsDetailModalOpen(false)} 
+        date={selectedDay} 
+        allTasks={allTasks}
+      />
     </div>
   );
 }

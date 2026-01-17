@@ -1,8 +1,9 @@
 // src/components/TaskItem.tsx
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { 
   CheckSquare, Square, Plus, 
-  Trash2, Calendar, ArrowRight, Edit2
+  Trash2, Calendar, ArrowRight, Edit2, 
+  ChevronRight, ChevronDown // Ícones para o toggle
 } from 'lucide-react';
 import { db, type Task } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -20,6 +21,9 @@ export function TaskItem({ task, depth = 0 }: Props) {
   const [editTitle, setEditTitle] = useState(task.title);
   const [isMoveModalOpen, setIsMoveModalOpen] = useState(false);
   
+  // --- ESTADO DE EXPANSÃO (Padrão: false = retraído) ---
+  const [isExpanded, setIsExpanded] = useState(false);
+
   // Ref para o input de data escondido
   const dateInputRef = useRef<HTMLInputElement>(null);
 
@@ -35,6 +39,16 @@ export function TaskItem({ task, depth = 0 }: Props) {
     if (a.status !== 'done' && b.status === 'done') return -1;
     return 0;
   });
+
+  const hasSubtasks = sortedSubtasks && sortedSubtasks.length > 0;
+
+  // Se o usuário adicionar uma subtarefa, expande automaticamente
+  useEffect(() => {
+    if (hasSubtasks && !isExpanded && sortedSubtasks.length === 1) {
+        // Opcional: Se acabou de criar a primeira filha, expande para ver
+        // setIsExpanded(true); 
+    }
+  }, [sortedSubtasks?.length]);
 
   // Cálculo Recursivo Visual
   const calculatedProgress = useMemo(() => {
@@ -118,6 +132,8 @@ export function TaskItem({ task, depth = 0 }: Props) {
       links: [] 
     });
     
+    setIsExpanded(true); // Expande ao criar nova
+
     if (task.status === 'done') {
         await db.tasks.update(task.id, { status: 'todo', progress: 0 });
         if (task.parentId) await updateParentStatusRecursively(task.parentId);
@@ -139,45 +155,46 @@ export function TaskItem({ task, depth = 0 }: Props) {
     }
   };
 
-  // --- NOVA FUNÇÃO: Gerenciar Data ---
   const handleDateClick = () => {
-    // Abre o seletor nativo do navegador
     if (dateInputRef.current) {
-        // Tenta usar showPicker (mais moderno) ou click (fallback)
-        try {
-            dateInputRef.current.showPicker();
-        } catch {
-            dateInputRef.current.click();
-        }
+        try { dateInputRef.current.showPicker(); } catch { dateInputRef.current.click(); }
     }
   };
 
   const handleDateChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
       if (!task.id) return;
-      const val = e.target.value; // YYYY-MM-DD
-      
+      const val = e.target.value;
       if (!val) {
-          // Se limpar a data
           await db.tasks.update(task.id, { deadline: undefined });
       } else {
-          // Adiciona T12:00 para evitar problemas de fuso horário voltando 1 dia
           const newDate = new Date(val + 'T12:00:00'); 
           await db.tasks.update(task.id, { deadline: newDate });
       }
   };
 
-  // Formata a data para o value do input (YYYY-MM-DD)
-  const dateValue = task.deadline 
-    ? new Date(task.deadline).toISOString().split('T')[0] 
-    : '';
+  const dateValue = task.deadline ? new Date(task.deadline).toISOString().split('T')[0] : '';
+
+  // Função para alternar expansão
+  const toggleExpand = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsExpanded(!isExpanded);
+  };
 
   return (
     <div className="flex flex-col animate-in fade-in duration-300">
       <div 
-        className={`group flex items-start gap-3 py-3 px-3 rounded-xl transition-all border border-transparent hover:border-gray-100 hover:bg-white hover:shadow-sm cursor-pointer ${task.status === 'done' ? 'opacity-60' : ''}`}
+        className={`group flex items-start gap-2 py-3 px-2 rounded-xl transition-all border border-transparent hover:border-gray-100 hover:bg-white hover:shadow-sm cursor-pointer ${task.status === 'done' ? 'opacity-60' : ''}`}
         onClick={!isEditing ? handleNavigate : undefined}
       >
         
+        {/* BOTÃO DE EXPANSÃO (Seta) */}
+        <button 
+            onClick={toggleExpand}
+            className={`mt-1 p-0.5 rounded hover:bg-gray-100 text-gray-400 transition-colors ${!hasSubtasks ? 'invisible' : ''}`}
+        >
+            {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+        </button>
+
         {/* Checkbox */}
         <button onClick={toggleStatus} className={`mt-0.5 transition-colors ${task.status === 'done' ? 'text-gray-400' : 'text-gray-300 hover:text-blue-500'}`}>
           {task.status === 'done' ? <CheckSquare size={20} /> : <Square size={20} />}
@@ -209,7 +226,7 @@ export function TaskItem({ task, depth = 0 }: Props) {
                         </span>
                     )}
                     
-                    {subtasks && subtasks.length > 0 && (
+                    {hasSubtasks && (
                         <div className="flex items-center gap-2">
                              <div className="w-12 h-1 bg-gray-100 rounded-full overflow-hidden">
                                 <div className="h-full bg-blue-500 transition-all duration-500" style={{ width: `${calculatedProgress}%` }} />
@@ -224,50 +241,25 @@ export function TaskItem({ task, depth = 0 }: Props) {
 
         {/* Ações Fixas */}
         <div className="flex items-center gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity self-start md:self-center" onClick={(e) => e.stopPropagation()}>
-            
-            {/* Adicionar Subtarefa */}
-            <button onClick={handleAddSubtask} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Adicionar Subtarefa">
-                <Plus size={18} />
-            </button>
-
-            {/* --- NOVA DATA (Calendário) --- */}
+            <button onClick={handleAddSubtask} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Adicionar Subtarefa"><Plus size={18} /></button>
             <div className="relative">
-                <button onClick={handleDateClick} className="p-1.5 text-gray-400 hover:text-orange-500 hover:bg-orange-50 rounded-lg transition-colors" title="Definir Data Limite">
-                    <Calendar size={16} />
-                </button>
-                {/* Input escondido que é ativado pelo botão acima */}
-                <input 
-                    type="date" 
-                    ref={dateInputRef}
-                    value={dateValue}
-                    onChange={handleDateChange}
-                    className="absolute opacity-0 w-0 h-0 pointer-events-none"
-                />
+                <button onClick={handleDateClick} className="p-1.5 text-gray-400 hover:text-orange-500 hover:bg-orange-50 rounded-lg transition-colors" title="Definir Data Limite"><Calendar size={16} /></button>
+                <input type="date" ref={dateInputRef} value={dateValue} onChange={handleDateChange} className="absolute opacity-0 w-0 h-0 pointer-events-none" />
             </div>
-            
-            {/* Editar */}
-            <button onClick={() => setIsEditing(true)} className="p-1.5 text-gray-400 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors" title="Editar Título">
-                <Edit2 size={16} />
-            </button>
-
-            {/* Mover */}
-            <button onClick={() => setIsMoveModalOpen(true)} className="p-1.5 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors" title="Mover Tarefa">
-                <ArrowRight size={18} />
-            </button>
-            
-            {/* Excluir */}
-            <button onClick={handleDelete} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Excluir">
-                <Trash2 size={16} />
-            </button>
-
+            <button onClick={() => setIsEditing(true)} className="p-1.5 text-gray-400 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors" title="Editar Título"><Edit2 size={16} /></button>
+            <button onClick={() => setIsMoveModalOpen(true)} className="p-1.5 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors" title="Mover Tarefa"><ArrowRight size={18} /></button>
+            <button onClick={handleDelete} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Excluir"><Trash2 size={16} /></button>
         </div>
       </div>
 
-      <div className="pl-4 ml-3 border-l border-gray-100 space-y-1">
-        {sortedSubtasks?.map(subtask => (
-          <TaskItem key={subtask.id} task={subtask} depth={depth + 1} />
-        ))}
-      </div>
+      {/* RENDERIZAÇÃO CONDICIONAL DAS FILHAS (Só se isExpanded for true) */}
+      {isExpanded && sortedSubtasks && sortedSubtasks.length > 0 && (
+        <div className="pl-4 ml-3 border-l border-gray-100 space-y-1">
+            {sortedSubtasks.map(subtask => (
+            <TaskItem key={subtask.id} task={subtask} depth={depth + 1} />
+            ))}
+        </div>
+      )}
 
       <MoveTaskModal 
         isOpen={isMoveModalOpen} 

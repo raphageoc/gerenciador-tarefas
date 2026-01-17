@@ -13,9 +13,10 @@ interface Props {
   currentDate: Date;
   onPrevMonth: () => void;
   onNextMonth: () => void;
+  onDayClick?: (date: Date) => void; // Adicionado
 }
 
-export function StressCalendar({ data, currentDate, onPrevMonth, onNextMonth }: Props) {
+export function StressCalendar({ data, currentDate, onPrevMonth, onNextMonth, onDayClick }: Props) {
   const daysInMonth = useMemo(() => {
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
@@ -34,7 +35,7 @@ export function StressCalendar({ data, currentDate, onPrevMonth, onNextMonth }: 
       date.setDate(date.getDate() + 1);
     }
     
-    // Completar o grid para ter sempre 42 células (6 linhas x 7 colunas) para manter o layout fixo
+    // Completar o grid para ter sempre 42 células
     while (days.length < 42) {
         days.push(null);
     }
@@ -42,19 +43,20 @@ export function StressCalendar({ data, currentDate, onPrevMonth, onNextMonth }: 
     return days;
   }, [currentDate]);
 
+  // CORREÇÃO DE FUSO: Igualamos a lógica do Dashboard para encontrar os dados
   const getStressInfo = (date: Date) => {
-    const dateStr = date.toISOString().split('T')[0];
+    const offsetMs = date.getTimezoneOffset() * 60000;
+    const dateStr = new Date(date.getTime() - offsetMs).toISOString().split('T')[0];
     return data.find(d => d.date === dateStr);
   };
 
-  // Cores adaptadas para o estilo "borda e fundo suave" do seu exemplo
   const getStyle = (level: number) => {
-    if (level === 0) return 'bg-white border-gray-100 hover:border-gray-200 text-gray-400'; // Vazio
-    if (level <= 2) return 'bg-blue-50 border-blue-100 text-blue-600';     // Relaxado
-    if (level <= 4) return 'bg-green-50 border-green-100 text-green-600';   // Bem
-    if (level <= 6) return 'bg-yellow-50 border-yellow-100 text-yellow-600'; // Moderado
-    if (level <= 8) return 'bg-orange-50 border-orange-100 text-orange-600'; // Tenso
-    return 'bg-red-50 border-red-100 text-red-600';                         // Crítico
+    if (level === 0) return 'bg-white border-gray-100 hover:border-gray-200 text-gray-400';
+    if (level <= 2) return 'bg-blue-50 border-blue-100 text-blue-600';     
+    if (level <= 4) return 'bg-green-50 border-green-100 text-green-600';   
+    if (level <= 6) return 'bg-yellow-50 border-yellow-100 text-yellow-600'; 
+    if (level <= 8) return 'bg-orange-50 border-orange-100 text-orange-600'; 
+    return 'bg-red-50 border-red-100 text-red-600';                         
   };
 
   const monthName = currentDate.toLocaleString('pt-BR', { month: 'short', year: 'numeric' });
@@ -62,7 +64,7 @@ export function StressCalendar({ data, currentDate, onPrevMonth, onNextMonth }: 
   return (
     <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 h-full flex flex-col overflow-hidden">
       
-      {/* Header idêntico ao exemplo */}
+      {/* Header */}
       <div className="flex items-center justify-between mb-2 flex-shrink-0">
         <h3 className="font-bold text-gray-700 flex items-center gap-2 text-sm">
             <Brain size={18} className="text-purple-600" />
@@ -86,10 +88,10 @@ export function StressCalendar({ data, currentDate, onPrevMonth, onNextMonth }: 
         ))}
       </div>
 
-      {/* Grid Principal - AQUI ESTÁ A MÁGICA DO TAMANHO (grid-rows-6 + flex-1) */}
+      {/* Grid Principal */}
       <div className="grid grid-cols-7 grid-rows-6 gap-1 flex-1 min-h-0">
         {daysInMonth.map((date, i) => {
-            if (!date) return <div key={i}></div>; // Div vazio para espaçamento
+            if (!date) return <div key={i}></div>;
 
             const info = getStressInfo(date);
             const hasData = info && info.count > 0;
@@ -99,18 +101,17 @@ export function StressCalendar({ data, currentDate, onPrevMonth, onNextMonth }: 
             return (
                 <div 
                     key={i}
+                    onClick={() => onDayClick && onDayClick(date)} // Ação de clique
                     className={`
-                        relative border rounded-lg flex flex-col items-center justify-center transition-all
+                        relative border rounded-lg flex flex-col items-center justify-center transition-all cursor-pointer hover:scale-105 hover:z-10
                         ${styles}
                     `}
                     title={hasData ? `Média: ${level.toFixed(1)} | Sessões: ${info.count}` : ''}
                 >
-                    {/* Número do dia no canto superior direito */}
                     <span className={`absolute top-0.5 right-1.5 text-[9px] font-medium opacity-70 ${hasData ? 'text-inherit' : 'text-gray-400'}`}>
                         {date.getDate()}
                     </span>
 
-                    {/* Valor Central (Nível de Stress) */}
                     {hasData && (
                         <span className="font-bold leading-none tracking-tight" style={{ fontSize: '0.85rem' }}>
                             {level.toFixed(1)}
@@ -121,7 +122,7 @@ export function StressCalendar({ data, currentDate, onPrevMonth, onNextMonth }: 
         })}
       </div>
       
-      {/* Legenda (Opcional, compacta para não roubar espaço) */}
+      {/* Legenda */}
       <div className="flex justify-between items-center text-[9px] text-gray-400 mt-2 pt-2 border-t border-gray-50 flex-shrink-0">
          <span>Baixo</span>
          <div className="flex gap-1">

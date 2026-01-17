@@ -1,4 +1,5 @@
 // src/components/ProjectCalendar.tsx
+// src/components/ProjectCalendar.tsx
 import { useMemo } from 'react';
 import { ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react';
 
@@ -7,9 +8,10 @@ interface Props {
   currentDate: Date;
   onPrevMonth: () => void;
   onNextMonth: () => void;
+  onDayClick?: (date: Date) => void; // Adicionado para suportar o clique
 }
 
-export function ProjectCalendar({ data, currentDate, onPrevMonth, onNextMonth }: Props) {
+export function ProjectCalendar({ data, currentDate, onPrevMonth, onNextMonth, onDayClick }: Props) {
   
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
@@ -83,7 +85,7 @@ export function ProjectCalendar({ data, currentDate, onPrevMonth, onNextMonth }:
         </div>
       </div>
 
-      {/* Dias da Semana - CORRIGIDO O KEY AQUI */}
+      {/* Dias da Semana */}
       <div className="grid grid-cols-7 mb-1 flex-shrink-0">
         {['D', 'S', 'T', 'Q', 'Q', 'S', 'S'].map((day, i) => (
             <div key={i} className="text-center text-[10px] font-bold text-gray-400">
@@ -107,9 +109,10 @@ export function ProjectCalendar({ data, currentDate, onPrevMonth, onNextMonth }:
 
             return (
                 <div 
-                    key={day}
+                    key={dateStr}
+                    onClick={() => onDayClick && onDayClick(new Date(year, month, day))} // Ação de clique
                     className={`
-                        relative border rounded-lg flex flex-col items-center justify-center transition-all
+                        relative border rounded-lg flex flex-col items-center justify-center transition-all cursor-pointer hover:scale-105 hover:z-10
                         ${containerClass}
                     `}
                     title={hours > 0 ? `${day}/${month+1}: ${hours.toFixed(2)} horas trabalhadas` : ''}

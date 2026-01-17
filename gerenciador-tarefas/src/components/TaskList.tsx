@@ -7,18 +7,20 @@ import {
   Layout, X, Check, CornerDownRight, Database 
 } from 'lucide-react';
 import { TaskItem } from './TaskItem';
-import { DataManagementModal } from './DataManagementModal'; // Importado
+import { DataManagementModal } from './DataManagementModal';
+import { CreateProjectModal } from './CreateProjectModal'; // NOVO IMPORT
 
 export function TaskList() {
   const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false);
-  const [isDataModalOpen, setIsDataModalOpen] = useState(false); // Estado do Modal de Dados
+  const [isDataModalOpen, setIsDataModalOpen] = useState(false);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false); // NOVO ESTADO
+  
   const [selectedProjectId, setSelectedProjectId] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const allTasks = useLiveQuery(() => db.tasks.toArray());
 
-  // Fechar dropdown ao clicar fora
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
@@ -29,26 +31,20 @@ export function TaskList() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // --- LÓGICA DE PROGRESSO RECURSIVO ---
   const getRecursiveProgress = (taskId: number): number => {
     if (!allTasks) return 0;
-    
     const children = allTasks.filter(t => t.parentId === taskId);
-    
     if (children.length === 0) {
         const t = allTasks.find(x => x.id === taskId);
         return t?.status === 'done' ? 100 : (t?.progress || 0);
     }
-
     const totalProgress = children.reduce((acc, child) => {
         if (child.id) return acc + getRecursiveProgress(child.id);
         return acc;
     }, 0);
-
     return totalProgress / children.length;
   };
 
-  // Opções do Dropdown (Árvore)
   const projectOptions = useMemo(() => {
     if (!allTasks) return [];
     const buildOptions = (parentId: number | undefined, depth: number): { id: number, title: string, depth: number }[] => {
@@ -75,7 +71,6 @@ export function TaskList() {
       return allTasks?.find(t => t.id === Number(selectedProjectId))?.title || "Selecione...";
   }, [selectedProjectId, allTasks]);
 
-  // Filtragem principal da lista
   const filteredTasks = useMemo(() => {
     if (!allTasks) return [];
     if (selectedProjectId === 'all') {
@@ -85,22 +80,7 @@ export function TaskList() {
     return target ? [target] : [];
   }, [allTasks, selectedProjectId]);
 
-  const handleCreateProject = async () => {
-    const title = prompt("Nome do novo projeto:");
-    if (title) {
-      await db.tasks.add({
-        title,
-        description: '',
-        status: 'todo',
-        progress: 0,
-        createdAt: new Date(),
-        timeSpentMs: 0,
-        sessions: [],
-        resources: [],
-        links: []
-      });
-    }
-  };
+  // REMOVIDO: handleCreateProject antigo (prompt)
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500 pb-20">
@@ -114,7 +94,6 @@ export function TaskList() {
         </div>
 
         <div className="flex gap-2 w-full md:w-auto">
-            {/* BOTÃO DE DADOS (RESTAURADO) */}
             <button 
                 onClick={() => setIsDataModalOpen(true)}
                 className="p-2.5 bg-white border border-gray-200 rounded-xl text-gray-500 hover:text-gray-800 hover:border-gray-300 hover:bg-gray-50 transition-colors shadow-sm"
@@ -123,11 +102,11 @@ export function TaskList() {
                 <Database size={20} />
             </button>
 
-            <button onClick={handleCreateProject} className="flex-1 md:flex-none bg-gray-900 hover:bg-black text-white px-4 py-2 rounded-xl font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-gray-200">
+            {/* MUDANÇA: Agora abre o Modal em vez de prompt */}
+            <button onClick={() => setIsCreateModalOpen(true)} className="flex-1 md:flex-none bg-gray-900 hover:bg-black text-white px-4 py-2 rounded-xl font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-gray-200">
                 <Plus size={18} /> <span className="hidden sm:inline">Novo Projeto</span><span className="sm:hidden">Novo</span>
             </button>
             
-            {/* Dropdown de Filtro */}
             <div className="relative flex-1 md:flex-none" ref={dropdownRef}>
                 <button 
                     onClick={() => { setIsProjectDropdownOpen(!isProjectDropdownOpen); if (!isProjectDropdownOpen) setTimeout(() => document.getElementById('project-search')?.focus(), 50); }} 
@@ -173,7 +152,6 @@ export function TaskList() {
                 
                 return (
                     <div key={task.id} className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                        {/* Cabeçalho do Projeto (Se for visão geral) */}
                         {selectedProjectId === 'all' && (
                             <div className="p-4 border-b border-gray-100 bg-gray-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                                 <div>
@@ -195,8 +173,6 @@ export function TaskList() {
                                 </div>
                             </div>
                         )}
-                        
-                        {/* Item Recursivo */}
                         <div className="p-2">
                              <TaskItem task={task} />
                         </div>
@@ -209,6 +185,11 @@ export function TaskList() {
       <DataManagementModal 
         isOpen={isDataModalOpen} 
         onClose={() => setIsDataModalOpen(false)} 
+      />
+
+      <CreateProjectModal 
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
       />
     </div>
   );
