@@ -1,27 +1,42 @@
 // src/components/FocusSession.tsx
-// src/components/FocusSession.tsx
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import { 
   Play, Pause, ArrowLeft, Volume2, VolumeX, 
-  CheckSquare, Square, MoreHorizontal, Wind, RotateCcw, StopCircle, Clock, Plus, AlertTriangle 
+  MoreHorizontal, Wind, RotateCcw, StopCircle, Clock, Plus, AlertTriangle 
 } from 'lucide-react';
 import { TaskResources } from './TaskResources';
 import { BreathingModal } from './BreathingModal';
 import { PreSessionModal } from './PreSessionModal';
+import { TaskItem } from './TaskItem';
 import brownNoiseUrl from '../assets/pinknoise.mp3'; 
 
+// --- WRAPPER (Essencial para resetar o estado ao mudar de tarefa) ---
 export function FocusSession() {
   const { taskId } = useParams();
-  const navigate = useNavigate();
   const id = Number(taskId);
+  return <FocusSessionInner key={id} taskId={id} />;
+}
+
+// --- COMPONENTE INTERNO ---
+function FocusSessionInner({ taskId }: { taskId: number }) {
+  const navigate = useNavigate();
   
-  const task = useLiveQuery(() => db.tasks.get(id), [id]);
+  // CONSTANTE DE ID: Nunca muda durante a vida deste componente
+  const ACTIVE_TASK_ID = taskId;
+  
+  const task = useLiveQuery(() => db.tasks.get(ACTIVE_TASK_ID), [ACTIVE_TASK_ID]);
   const subtasks = useLiveQuery(() => 
-    id ? db.tasks.where('parentId').equals(id).toArray() : []
-  , [id]);
+    db.tasks.where('parentId').equals(ACTIVE_TASK_ID).toArray()
+  , [ACTIVE_TASK_ID]);
+  
+  const sortedSubtasks = subtasks?.sort((a, b) => {
+    if (a.status === 'done' && b.status !== 'done') return 1;
+    if (a.status !== 'done' && b.status === 'done') return -1;
+    return 0;
+  });
 
   const [isSessionActive, setIsSessionActive] = useState(false);
   const [isCountdownActive, setIsCountdownActive] = useState(false);
@@ -30,10 +45,6 @@ export function FocusSession() {
   
   const startTimeRef = useRef<Date | null>(null);
   const isSessionActiveRef = useRef(false);
-  const taskIdRef = useRef(id);
-
-  useEffect(() => { isSessionActiveRef.current = isSessionActive; }, [isSessionActive]);
-  useEffect(() => { taskIdRef.current = id; }, [id]);
 
   const [visualElapsed, setVisualElapsed] = useState(0); 
   const [sessionDuration, setSessionDuration] = useState(25 * 60); 
@@ -44,73 +55,90 @@ export function FocusSession() {
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [notes, setNotes] = useState("");
   const [isBreathing, setIsBreathing] = useState(false);
-  
-  // NOVO: Estado para controlar o input de nova subtarefa
   const [newSubtaskTitle, setNewSubtaskTitle] = useState("");
   
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const alarmRef = useRef<HTMLAudioElement | null>(null);
 
+  // Sincroniza Ref apenas para verificação
+  useEffect(() => { isSessionActiveRef.current = isSessionActive; }, [isSessionActive]);
+
+  // Carrega dados iniciais
   useEffect(() => {
-    if (task) {
+    if (task && task.id === ACTIVE_TASK_ID) {
       if (!notes) setNotes(task.description || "");
-      setVisualElapsed(Math.floor(task.timeSpentMs / 1000));
+      if (!isSessionActive) {
+          setVisualElapsed(Math.floor(task.timeSpentMs / 1000));
+      }
     }
-  }, [task]);
+  }, [task, ACTIVE_TASK_ID]); 
 
+  // --- FUNÇÃO DE SALVAR BLINDADA ---
   const executeFinalSave = async () => {
-      if (!isSessionActiveRef.current || !startTimeRef.current || !taskIdRef.current) return;
-      isSessionActiveRef.current = false;
-      try {
-          const currentId = taskIdRef.current;
-          const start = startTimeRef.current;
-          const now = new Date();
-          const diffMs = now.getTime() - start.getTime();
-          if (diffMs < 1000) return;
+      // 1. Captura os valores no momento exato da chamada
+      const start = startTimeRef.current;
+      const isActive = isSessionActiveRef.current;
 
-          const currentTask = await db.tasks.get(currentId);
+      // 2. Se não tem start time, NÃO SALVA (impede salvar tempo do pai no filho)
+      if (!isActive || !start) return;
+      
+      // 3. IMEDIATAMENTE invalida o startTime para impedir duplo salvamento
+      startTimeRef.current = null; 
+
+      const now = new Date();
+      const diffMs = now.getTime() - start.getTime();
+      
+      if (diffMs < 1000) return;
+
+      try {
+          const currentTask = await db.tasks.get(ACTIVE_TASK_ID);
           if (currentTask) {
               const newTotalMs = (currentTask.timeSpentMs || 0) + diffMs;
               const sessions = [...(currentTask.sessions || [])];
-              if (sessions.length > 0) sessions[sessions.length - 1].end = now;
-              else sessions.push({ start: start, end: now, didBreathing: false });
-              await db.tasks.update(currentId, { timeSpentMs: newTotalMs, sessions: sessions, status: 'paused' });
+              
+              if (sessions.length > 0 && sessions[sessions.length - 1].end.getTime() === sessions[sessions.length - 1].start.getTime()) {
+                  sessions[sessions.length - 1].end = now;
+              } else {
+                  sessions.push({ start: start, end: now, didBreathing: false });
+              }
+              
+              await db.tasks.update(ACTIVE_TASK_ID, { timeSpentMs: newTotalMs, sessions: sessions, status: 'paused' });
           }
-      } catch (e) { console.error(e); }
+      } catch (e) { console.error("Erro ao salvar:", e); }
   };
 
-  useEffect(() => {
-    window.history.pushState(null, document.title, window.location.href);
-    const handlePopState = () => {
-        if (isSessionActiveRef.current) {
-            window.history.pushState(null, document.title, window.location.href);
-            setShowExitConfirm(true);
-        } else {
-            navigate('/');
-        }
-    };
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
-  }, [navigate]);
+  // --- NAVEGAÇÃO SEGURA ---
+  const handleTaskNavigate = async (targetId: number) => {
+      // Se estiver rodando, SALVA a tarefa atual explicitamente
+      if (isSessionActive) {
+          await executeFinalSave(); // Isso já zera o startTimeRef
+          
+          // Desliga flags visuais
+          setIsSessionActive(false);
+          setIsCountdownActive(false);
+      }
+      // Navega (O componente será destruído e recriado para a nova tarefa)
+      navigate(`/focus/${targetId}`);
+  };
 
+  // Salvar ao fechar aba
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
         if (isSessionActiveRef.current) {
             executeFinalSave(); e.preventDefault(); e.returnValue = ''; 
         }
     };
-    const handleUnload = () => { if (isSessionActiveRef.current) executeFinalSave(); };
     window.addEventListener('beforeunload', handleBeforeUnload);
-    window.addEventListener('unload', handleUnload);
-    return () => {
-        window.removeEventListener('beforeunload', handleBeforeUnload);
-        window.removeEventListener('unload', handleUnload);
-    };
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, []);
 
+  // Salvar ao desmontar (garantia extra)
   useEffect(() => { 
     return () => { 
-      if (isSessionActiveRef.current) executeFinalSave(); 
+      // Só salva se startTimeRef ainda existir (se handleTaskNavigate já rodou, ele será null e não salvará de novo)
+      if (isSessionActiveRef.current && startTimeRef.current) {
+          executeFinalSave(); 
+      }
       if (audioRef.current) {
         audioRef.current.pause();
         audioRef.current = null;
@@ -118,17 +146,21 @@ export function FocusSession() {
     }; 
   }, []);
 
+  // Timer Visual
   useEffect(() => {
     let interval: number;
     if (isSessionActive) {
       if (!startTimeRef.current) startTimeRef.current = new Date();
+      
       interval = setInterval(() => {
-        if (task && startTimeRef.current) {
+        // SEGURANÇA: Só atualiza visual se task carregada for a correta
+        if (task && task.id === ACTIVE_TASK_ID && startTimeRef.current) {
             const now = new Date();
             const sessionSeconds = Math.floor((now.getTime() - startTimeRef.current.getTime()) / 1000);
             const totalBancoSeconds = Math.floor(task.timeSpentMs / 1000);
             setVisualElapsed(totalBancoSeconds + sessionSeconds);
         }
+        
         if (isCountdownActive && !isEditingTime) {
             setTimeLeft(prev => {
                 if (prev <= 1) { playAlarm(); setIsCountdownActive(false); return 0; }
@@ -138,13 +170,13 @@ export function FocusSession() {
       }, 1000);
     }
     return () => clearInterval(interval);
-  }, [isSessionActive, isCountdownActive, isEditingTime, task]);
+  }, [isSessionActive, isCountdownActive, isEditingTime, task, ACTIVE_TASK_ID]);
 
   const attemptExit = () => { if (isSessionActive) setShowExitConfirm(true); else manualExit(); };
   
   const manualExit = async () => {
     if (isSessionActive) await executeFinalSave();
-    if (task && notes !== task.description) await db.tasks.update(id, { description: notes, status: 'paused' });
+    if (task && notes !== task.description) await db.tasks.update(ACTIVE_TASK_ID, { description: notes, status: 'paused' });
     setIsPlayingAudio(false); 
     navigate('/');
   };
@@ -155,10 +187,8 @@ export function FocusSession() {
         await executeFinalSave();
         setIsSessionActive(false);
         setIsCountdownActive(false);
-        startTimeRef.current = null;
-        if (isPlayingAudio) {
-            setIsPlayingAudio(false);
-        }
+        // startTimeRef já é zerado no executeFinalSave
+        if (isPlayingAudio) setIsPlayingAudio(false);
     } else {
         setShowPreSession(true);
     }
@@ -169,10 +199,13 @@ export function FocusSession() {
     if (!task) return;
     const now = new Date();
     startTimeRef.current = now;
+    
     const newSession: any = { start: now, end: now, didBreathing: didBreathing };
     if (stressLevel !== undefined) { newSession.stressLevel = stressLevel; newSession.stressNote = stressNote; }
     const newSessions = [...(task.sessions || []), newSession];
-    await db.tasks.update(id, { status: 'in_progress', sessions: newSessions });
+    
+    await db.tasks.update(ACTIVE_TASK_ID, { status: 'in_progress', sessions: newSessions });
+    
     setIsSessionActive(true);
     if (timeLeft > 0) setIsCountdownActive(true);
   };
@@ -191,32 +224,39 @@ export function FocusSession() {
   const handleTimeSave = () => { let m = parseInt(editValue); if (isNaN(m) || m < 1) m = 25; setSessionDuration(m * 60); setTimeLeft(m * 60); setIsEditingTime(false); if (isSessionActive) setIsCountdownActive(true); };
   const setSessionTime = (m: number) => { setSessionDuration(m * 60); setTimeLeft(m * 60); if (isSessionActive) setIsCountdownActive(true); };
   
-  // CORREÇÃO: Input Controlado para limpar o campo corretamente
   const handleAddSubtask = async (e: React.KeyboardEvent<HTMLInputElement>) => { 
     if (e.key === 'Enter') { 
-        if (!newSubtaskTitle.trim() || !task?.id) return; 
-        
-        await db.tasks.add({ 
-            parentId: task.id, 
-            title: newSubtaskTitle, 
-            description: '', 
-            status: 'todo', 
-            progress: 0, 
-            createdAt: new Date(), 
-            timeSpentMs: 0, 
-            sessions: [], 
-            resources: [], 
-            links: [] 
-        }); 
-        
-        setNewSubtaskTitle(""); // Limpa o estado e o input
+        e.preventDefault();
+        const titleToAdd = newSubtaskTitle.trim();
+        if (!titleToAdd || !task?.id) return; 
+        setNewSubtaskTitle(""); 
+        try {
+            await db.tasks.add({ 
+                parentId: task.id, title: titleToAdd, description: '', 
+                status: 'todo', progress: 0, createdAt: new Date(), timeSpentMs: 0, 
+                sessions: [], resources: [], links: [] 
+            }); 
+        } catch (error) {
+            console.error("Erro ao salvar:", error);
+            setNewSubtaskTitle(titleToAdd);
+        }
     } 
   };
 
-  const toggleSubtask = async (subId?: number, currentStatus?: string) => { if (!subId) return; await db.tasks.update(subId, { status: currentStatus === 'done' ? 'todo' : 'done' }); };
   const handleNoteChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => { setNotes(e.target.value); };
 
-  if (!task) return <div className="p-10 opacity-50">Carregando...</div>;
+  // BARREIRA DE CARREGAMENTO (Evita mostrar dados errados)
+  if (!task || task.id !== ACTIVE_TASK_ID) {
+      return (
+        <div className="fixed inset-0 bg-[#FDFDFD] flex items-center justify-center z-50">
+            <div className="flex flex-col items-center gap-3 opacity-50">
+                <Clock className="animate-spin text-blue-500" size={32} />
+                <span className="text-sm font-medium text-gray-500">Carregando tarefa...</span>
+            </div>
+        </div>
+      );
+  }
+  
   const progressPercent = sessionDuration > 0 ? Math.max(0, (timeLeft / sessionDuration) * 100) : 0;
 
   return (
@@ -257,13 +297,19 @@ export function FocusSession() {
         </div>
 
         <div className="flex-1 grid grid-cols-1 md:grid-cols-12 gap-6 min-h-0">
-            <div className="col-span-1 md:col-span-4 flex flex-col gap-6">
-                <div className="bg-white rounded-xl border border-gray-100 p-4 flex flex-col h-[300px] md:h-1/2 shadow-sm">
+            <div className="col-span-1 md:col-span-4 flex flex-col gap-6 h-full min-h-0">
+                
+                {/* Lista de Passos */}
+                <div className="bg-white rounded-xl border border-gray-100 p-4 flex flex-col h-[300px] md:flex-1 min-h-0 shadow-sm">
                     <div className="flex items-center justify-between mb-3 border-b border-gray-50 pb-2"><span className="text-xs font-bold text-gray-400 uppercase tracking-widest">Lista de Passos</span><button className="text-gray-400 hover:text-gray-600"><MoreHorizontal size={14} /></button></div>
                     <div className="flex-1 overflow-y-auto space-y-1 pr-1">
-                        {subtasks?.map(sub => (<div key={sub.id} onClick={() => toggleSubtask(sub.id, sub.status)} className="group flex items-start gap-3 p-2 hover:bg-gray-50 rounded-lg cursor-pointer transition-colors"><div className={`mt-0.5 ${sub.status === 'done' ? 'text-gray-300' : 'text-gray-400 group-hover:text-blue-500'}`}>{sub.status === 'done' ? <CheckSquare size={16} /> : <Square size={16} />}</div><span className={`text-sm leading-tight ${sub.status === 'done' ? 'text-gray-300 line-through' : 'text-gray-600'}`}>{sub.title}</span></div>))}
                         
-                        {/* INPUT CONTROLADO */}
+                        {sortedSubtasks?.map(sub => (
+                            <div key={sub.id} className="scale-[0.98] origin-left">
+                                <TaskItem task={sub} onNavigate={handleTaskNavigate} />
+                            </div>
+                        ))}
+                        
                         <div className="flex items-center gap-2 mt-2 px-2 py-1 bg-gray-50 rounded-lg focus-within:ring-2 focus-within:ring-blue-100">
                             <Plus className="text-gray-400" size={14} />
                             <input 
@@ -278,12 +324,13 @@ export function FocusSession() {
 
                     </div>
                 </div>
-                <div className="h-[300px] md:flex-1 md:h-auto overflow-hidden rounded-xl border border-gray-100 shadow-sm">
+
+                <div className="h-[300px] md:flex-1 md:h-auto min-h-0 overflow-hidden rounded-xl border border-gray-100 shadow-sm">
                     <TaskResources task={task} />
                 </div>
             </div>
 
-            <div className="col-span-1 md:col-span-8 bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col overflow-hidden relative group min-h-[400px] md:min-h-0">
+            <div className="col-span-1 md:col-span-8 bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col overflow-hidden relative group min-h-[400px] md:h-full md:min-h-0">
                 <div className="p-3 border-b border-gray-50 bg-gray-50/50 flex justify-between items-center"><span className="text-xs font-bold text-gray-400 uppercase tracking-widest">Diário de Bordo / Notas</span><span className="text-[10px] text-gray-400">{notes.length} caracteres</span></div>
                 <textarea value={notes} onChange={handleNoteChange} placeholder="Registre suas ideias..." className="flex-1 w-full h-full p-6 resize-none outline-none text-gray-700 text-base leading-relaxed font-normal placeholder-gray-300" spellCheck={false} />
             </div>
@@ -291,13 +338,8 @@ export function FocusSession() {
       </div>
       
       <BreathingModal isOpen={isBreathing} onClose={() => setIsBreathing(false)} />
+      <PreSessionModal isOpen={showPreSession} onCancel={() => setShowPreSession(false)} onStart={startSessionConfirmed} />
       
-      <PreSessionModal 
-        isOpen={showPreSession} 
-        onCancel={() => setShowPreSession(false)} 
-        onStart={startSessionConfirmed} 
-      />
-
       {showExitConfirm && (<div className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200"><div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full"><div className="flex flex-col items-center text-center gap-4"><div className="w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center text-yellow-600"><AlertTriangle size={24} /></div><div><h3 className="text-lg font-bold text-gray-800">Sessão em Andamento!</h3><p className="text-sm text-gray-500 mt-1">O cronômetro ainda está rodando. Se sair agora, o tempo será salvo.</p></div><div className="flex gap-3 w-full mt-2"><button onClick={() => setShowExitConfirm(false)} className="flex-1 py-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 font-medium">Cancelar</button><button onClick={manualExit} className="flex-1 py-2 rounded-lg bg-gray-800 text-white hover:bg-gray-900 font-medium">Salvar e Sair</button></div></div></div></div>)}
     </div>
   );

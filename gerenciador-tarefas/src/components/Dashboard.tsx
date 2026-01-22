@@ -8,26 +8,22 @@ import {
 } from 'lucide-react';
 import { ProjectCalendar } from './ProjectCalendar';
 import { StressCalendar } from './StressCalendar';
-import { DayDetailModal } from './DayDetailModal'; // NOVO IMPORT
+import { DayDetailModal } from './DayDetailModal';
 
 export function Dashboard() {
   const [calendarDate, setCalendarDate] = useState(new Date());
   
-  // Detalhes do Dia (Modal)
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
 
-  // Filtro de Projetos
   const [selectedProjectId, setSelectedProjectId] = useState<string>('all');
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Filtro de Tempo (Ranking)
   const [rankingMode, setRankingMode] = useState<'week' | 'month' | 'all'>('week');
   const [rankingDate, setRankingDate] = useState(new Date()); 
 
-  // 1. Carregar Dados
   const allTasks = useLiveQuery(() => db.tasks.toArray());
 
   useEffect(() => {
@@ -51,7 +47,26 @@ export function Dashboard() {
       setIsDetailModalOpen(true);
   };
 
-  // --- OPÇÕES DO DROPDOWN ---
+  // --- HELPER: CÁLCULO RECURSIVO DE PROGRESSO ---
+  // (Igual ao usado na TaskList para garantir consistência)
+  const getRecursiveProgress = (taskId: number): number => {
+    if (!allTasks) return 0;
+    
+    const children = allTasks.filter(t => t.parentId === taskId);
+    
+    if (children.length === 0) {
+        const t = allTasks.find(x => x.id === taskId);
+        return t?.status === 'done' ? 100 : (t?.progress || 0);
+    }
+
+    const totalProgress = children.reduce((acc, child) => {
+        if (child.id) return acc + getRecursiveProgress(child.id);
+        return acc;
+    }, 0);
+
+    return totalProgress / children.length;
+  };
+
   const projectOptions = useMemo(() => {
     if (!allTasks) return [];
     const buildOptions = (parentId: number | undefined, depth: number): { id: number, title: string, depth: number }[] => {
@@ -78,7 +93,6 @@ export function Dashboard() {
       return allTasks?.find(t => t.id === Number(selectedProjectId))?.title || "Selecione...";
   }, [selectedProjectId, allTasks]);
 
-  // --- FILTRAGEM DE TAREFAS (ÁRVORE) ---
   const filteredTasks = useMemo(() => {
     if (!allTasks) return [];
     if (selectedProjectId === 'all') return allTasks;
@@ -105,7 +119,6 @@ export function Dashboard() {
     return family;
   }, [allTasks, selectedProjectId]);
 
-  // --- ESTATÍSTICAS MENSAIS ---
   const monthlyStats = useMemo(() => {
       let totalStress = 0;
       let totalCount = 0;
@@ -131,8 +144,6 @@ export function Dashboard() {
       };
   }, [filteredTasks, calendarDate]);
 
-
-  // --- DADOS PARA CALENDÁRIOS ---
   const stressCalendarData = useMemo(() => {
     const dailyMap: Record<string, { sum: number; count: number }> = {};
     filteredTasks.forEach(task => {
@@ -175,7 +186,6 @@ export function Dashboard() {
      return Object.entries(dataMap).map(([date, hours]) => ({ date, hours }));
   }, [filteredTasks, calendarDate]);
 
-  // --- DIÁRIO DE SENTIMENTOS ---
   const journalEntries = useMemo(() => {
       const entries: { id: string; taskTitle: string; date: Date; stressLevel: number; note: string }[] = [];
       filteredTasks.forEach(task => {
@@ -208,7 +218,6 @@ export function Dashboard() {
       return 'bg-red-100 text-red-700';
   };
 
-  // --- RANKING AGREGADO ---
   const rankedTasks = useMemo(() => {
     if (!allTasks) return { items: [], rangeLabel: '' };
 
@@ -274,14 +283,24 @@ export function Dashboard() {
   const totalFocusMs = filteredTasks.reduce((acc, t) => acc + Number(t.timeSpentMs || 0), 0);
   const totalHours = (totalFocusMs / (1000 * 60 * 60)).toFixed(1);
 
+  // --- CORREÇÃO: Prazos com Progresso Dinâmico ---
   const deadlines = useMemo(() => {
-    return filteredTasks.filter(t => t.status !== 'done' && !!t.deadline).map(t => {
-        const now = new Date(); const deadline = new Date(t.deadline!);
-        const diffTime = deadline.getTime() - now.getTime();
-        const daysLeft = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        return { ...t, daysLeft };
-      }).sort((a, b) => a.daysLeft - b.daysLeft);
-  }, [filteredTasks]);
+    if (!allTasks) return []; // Segurança se allTasks não carregou
+    return filteredTasks
+        .filter(t => t.status !== 'done' && !!t.deadline)
+        .map(t => {
+            const now = new Date(); 
+            const deadline = new Date(t.deadline!);
+            const diffTime = deadline.getTime() - now.getTime();
+            const daysLeft = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            
+            // Calcula o progresso real recursivamente
+            const computedProgress = t.id ? getRecursiveProgress(t.id) : 0;
+
+            return { ...t, daysLeft, computedProgress };
+        })
+        .sort((a, b) => a.daysLeft - b.daysLeft);
+  }, [filteredTasks, allTasks]); // Depende de allTasks para recálculo
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500 pb-20">
@@ -429,7 +448,6 @@ export function Dashboard() {
                                 </div>
                             </div>
                             
-                            {/* BARRA DE PROGRESSO DUPLA */}
                             <div className="w-full h-2.5 bg-gray-50 rounded-full overflow-hidden flex items-center relative">
                                 <div 
                                     className="h-full bg-purple-200 absolute left-0 top-0 z-0" 
@@ -448,11 +466,43 @@ export function Dashboard() {
             </div>
         </div>
 
-        {/* PRAZOS */}
+        {/* PRAZOS (ATUALIZADO) */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 h-[400px] overflow-y-auto">
             <h3 className="font-bold text-gray-700 mb-6 flex items-center gap-2 sticky top-0 bg-white pb-2 border-b border-gray-100 z-10"><Hourglass size={20} className="text-orange-500" /> Prazos e Progresso</h3>
             {!deadlines || deadlines.length === 0 ? (<div className="text-center py-10 text-gray-400"><p className="text-sm">Sem prazos.</p></div>) : (
-                <div className="space-y-4">{deadlines.map(task => { const isOverdue = task.daysLeft < 0; const isUrgent = task.daysLeft <= 3 && !isOverdue; const realProgress = task.progress || 0; return (<div key={task.id} className="group"><div className="flex justify-between items-end mb-1"><div className="flex flex-col min-w-0"><span className={`font-medium text-gray-700 text-sm flex items-center gap-2 ${!!task.parentId ? 'pl-2 border-l-2 border-gray-200' : ''}`}>{isOverdue && <AlertTriangle size={14} className="text-red-500 shrink-0" />}<span className="truncate" title={task.title}>{task.title}</span></span></div><div className="flex items-center gap-2 text-right"><span className="text-[10px] font-mono text-gray-400">{realProgress}%</span><span className={`text-xs font-bold whitespace-nowrap min-w-[35px] text-right ${isOverdue ? 'text-red-600' : isUrgent ? 'text-orange-600' : 'text-blue-600'}`}>{isOverdue ? `-${Math.abs(task.daysLeft)}d` : `${task.daysLeft}d`}</span></div></div><div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden"><div className={`h-full rounded-full transition-all duration-500 ${isOverdue ? 'bg-red-500' : isUrgent ? 'bg-orange-400' : 'bg-blue-500'}`} style={{ width: `${realProgress}%` }} /></div></div>); })}</div>
+                <div className="space-y-4">
+                    {deadlines.map(task => { 
+                        const isOverdue = task.daysLeft < 0; 
+                        const isUrgent = task.daysLeft <= 3 && !isOverdue; 
+                        // Usa o valor calculado recursivamente
+                        const realProgress = task.computedProgress || 0; 
+                        
+                        return (
+                            <div key={task.id} className="group">
+                                <div className="flex justify-between items-end mb-1">
+                                    <div className="flex flex-col min-w-0">
+                                        <span className={`font-medium text-gray-700 text-sm flex items-center gap-2 ${!!task.parentId ? 'pl-2 border-l-2 border-gray-200' : ''}`}>
+                                            {isOverdue && <AlertTriangle size={14} className="text-red-500 shrink-0" />}
+                                            <span className="truncate" title={task.title}>{task.title}</span>
+                                        </span>
+                                    </div>
+                                    <div className="flex items-center gap-2 text-right">
+                                        <span className="text-[10px] font-mono text-gray-400">{Math.round(realProgress)}%</span>
+                                        <span className={`text-xs font-bold whitespace-nowrap min-w-[35px] text-right ${isOverdue ? 'text-red-600' : isUrgent ? 'text-orange-600' : 'text-blue-600'}`}>
+                                            {isOverdue ? `-${Math.abs(task.daysLeft)}d` : `${task.daysLeft}d`}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                                    <div 
+                                        className={`h-full rounded-full transition-all duration-500 ${isOverdue ? 'bg-red-500' : isUrgent ? 'bg-orange-400' : 'bg-blue-500'}`} 
+                                        style={{ width: `${realProgress}%` }} 
+                                    />
+                                </div>
+                            </div>
+                        ); 
+                    })}
+                </div>
             )}
         </div>
       </div>
