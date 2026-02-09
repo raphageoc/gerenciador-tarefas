@@ -1,6 +1,7 @@
 // src/components/Dashboard.tsx
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
+import { useNavigate } from 'react-router-dom'; // 1. IMPORTADO
 import { db, type Task } from '../db';
 import { 
   Clock, Activity, Calendar, Hourglass, AlertTriangle, 
@@ -11,6 +12,7 @@ import { StressCalendar } from './StressCalendar';
 import { DayDetailModal } from './DayDetailModal';
 
 export function Dashboard() {
+  const navigate = useNavigate(); // 2. INICIALIZADO
   const [calendarDate, setCalendarDate] = useState(new Date());
   
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
@@ -47,8 +49,6 @@ export function Dashboard() {
       setIsDetailModalOpen(true);
   };
 
-  // --- HELPER: CÁLCULO RECURSIVO DE PROGRESSO ---
-  // (Igual ao usado na TaskList para garantir consistência)
   const getRecursiveProgress = (taskId: number): number => {
     if (!allTasks) return 0;
     
@@ -283,9 +283,8 @@ export function Dashboard() {
   const totalFocusMs = filteredTasks.reduce((acc, t) => acc + Number(t.timeSpentMs || 0), 0);
   const totalHours = (totalFocusMs / (1000 * 60 * 60)).toFixed(1);
 
-  // --- CORREÇÃO: Prazos com Progresso Dinâmico ---
   const deadlines = useMemo(() => {
-    if (!allTasks) return []; // Segurança se allTasks não carregou
+    if (!allTasks) return [];
     return filteredTasks
         .filter(t => t.status !== 'done' && !!t.deadline)
         .map(t => {
@@ -293,14 +292,12 @@ export function Dashboard() {
             const deadline = new Date(t.deadline!);
             const diffTime = deadline.getTime() - now.getTime();
             const daysLeft = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-            
-            // Calcula o progresso real recursivamente
             const computedProgress = t.id ? getRecursiveProgress(t.id) : 0;
 
             return { ...t, daysLeft, computedProgress };
         })
         .sort((a, b) => a.daysLeft - b.daysLeft);
-  }, [filteredTasks, allTasks]); // Depende de allTasks para recálculo
+  }, [filteredTasks, allTasks]);
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500 pb-20">
@@ -398,7 +395,7 @@ export function Dashboard() {
       {/* RANKING + PRAZOS */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         
-        {/* RANKING DE MAIOR CONSUMO (Agregado) */}
+        {/* RANKING */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 h-[400px] flex flex-col">
             <div className="flex flex-col gap-3 mb-4 pb-4 border-b border-gray-100">
                 <div className="flex items-center justify-between">
@@ -466,7 +463,7 @@ export function Dashboard() {
             </div>
         </div>
 
-        {/* PRAZOS (ATUALIZADO) */}
+        {/* PRAZOS (ATUALIZADO - CLICÁVEL) */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 h-[400px] overflow-y-auto">
             <h3 className="font-bold text-gray-700 mb-6 flex items-center gap-2 sticky top-0 bg-white pb-2 border-b border-gray-100 z-10"><Hourglass size={20} className="text-orange-500" /> Prazos e Progresso</h3>
             {!deadlines || deadlines.length === 0 ? (<div className="text-center py-10 text-gray-400"><p className="text-sm">Sem prazos.</p></div>) : (
@@ -474,11 +471,15 @@ export function Dashboard() {
                     {deadlines.map(task => { 
                         const isOverdue = task.daysLeft < 0; 
                         const isUrgent = task.daysLeft <= 3 && !isOverdue; 
-                        // Usa o valor calculado recursivamente
                         const realProgress = task.computedProgress || 0; 
                         
                         return (
-                            <div key={task.id} className="group">
+                            <div 
+                                key={task.id} 
+                                className="group cursor-pointer hover:bg-gray-50 p-2 -mx-2 rounded-lg transition-colors"
+                                onClick={() => navigate(`/focus/${task.id}`)}
+                                title="Clique para ir para a tarefa"
+                            >
                                 <div className="flex justify-between items-end mb-1">
                                     <div className="flex flex-col min-w-0">
                                         <span className={`font-medium text-gray-700 text-sm flex items-center gap-2 ${!!task.parentId ? 'pl-2 border-l-2 border-gray-200' : ''}`}>
