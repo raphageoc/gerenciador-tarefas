@@ -1,23 +1,25 @@
 // src/components/TaskList.tsx
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../db';
+import { db, type Task } from '../db';
 import { 
   Plus, Search, ChevronRight, ChevronDown, 
-  Layout, X, Check, CornerDownRight, Database 
+  Layout, X, Check, CornerDownRight, Database, GripVertical 
 } from 'lucide-react';
 import { TaskItem } from './TaskItem';
 import { DataManagementModal } from './DataManagementModal';
-import { CreateProjectModal } from './CreateProjectModal'; // NOVO IMPORT
+import { CreateProjectModal } from './CreateProjectModal';
 
 export function TaskList() {
   const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false);
   const [isDataModalOpen, setIsDataModalOpen] = useState(false);
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false); // NOVO ESTADO
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   
   const [selectedProjectId, setSelectedProjectId] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const [draggedTaskId, setDraggedTaskId] = useState<number | null>(null);
 
   const allTasks = useLiveQuery(() => db.tasks.toArray());
 
@@ -73,18 +75,72 @@ export function TaskList() {
 
   const filteredTasks = useMemo(() => {
     if (!allTasks) return [];
+    let tasks: Task[] = [];
+    
     if (selectedProjectId === 'all') {
-        return allTasks.filter(t => !t.parentId).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+        tasks = allTasks.filter(t => !t.parentId);
+    } else {
+        const target = allTasks.find(t => t.id === Number(selectedProjectId));
+        tasks = target ? [target] : [];
     }
-    const target = allTasks.find(t => t.id === Number(selectedProjectId));
-    return target ? [target] : [];
+
+    return tasks.sort((a, b) => {
+        const orderA = a.order ?? 9999999999; 
+        const orderB = b.order ?? 9999999999;
+        if (orderA !== orderB) return orderA - orderB;
+        return b.createdAt.getTime() - a.createdAt.getTime();
+    });
   }, [allTasks, selectedProjectId]);
 
-  // REMOVIDO: handleCreateProject antigo (prompt)
+  // --- FUNÇÃO PARA MOVER AO TOPO AO ABRIR ---
+  const handleOpenProject = async (taskId: number) => {
+      // 1. Encontra a ordem mais baixa atual (o topo da lista)
+      const rootTasks = allTasks?.filter(t => !t.parentId) || [];
+      const currentMinOrder = rootTasks.reduce((min, t) => Math.min(min, t.order ?? 0), 0);
+      
+      // 2. Define a ordem do projeto clicado para ser menor que o mínimo atual
+      // Isso garante que ele vá para o topo sem precisar reordenar todos os outros
+      await db.tasks.update(taskId, { order: currentMinOrder - 1 });
+
+      // 3. Abre o projeto
+      setSelectedProjectId(String(taskId));
+  };
+
+  // --- DRAG & DROP ---
+  const handleDragStart = (e: React.DragEvent, id: number) => {
+      setDraggedTaskId(id);
+      e.dataTransfer.effectAllowed = "move";
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+      e.preventDefault(); 
+      e.dataTransfer.dropEffect = "move";
+  };
+
+  const handleDrop = async (e: React.DragEvent, targetId: number) => {
+      e.preventDefault();
+      if (draggedTaskId === null || draggedTaskId === targetId) return;
+
+      const currentList = [...filteredTasks];
+      const oldIndex = currentList.findIndex(t => t.id === draggedTaskId);
+      const newIndex = currentList.findIndex(t => t.id === targetId);
+
+      if (oldIndex === -1 || newIndex === -1) return;
+
+      const [movedItem] = currentList.splice(oldIndex, 1);
+      currentList.splice(newIndex, 0, movedItem);
+
+      const updates = currentList.map((task, index) => ({
+          ...task,
+          order: index 
+      }));
+
+      await db.tasks.bulkPut(updates);
+      setDraggedTaskId(null);
+  };
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500 pb-20">
-      {/* Header */}
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-4 rounded-2xl shadow-sm border border-gray-200 z-40 relative">
         <div>
             <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
@@ -102,7 +158,6 @@ export function TaskList() {
                 <Database size={20} />
             </button>
 
-            {/* MUDANÇA: Agora abre o Modal em vez de prompt */}
             <button onClick={() => setIsCreateModalOpen(true)} className="flex-1 md:flex-none bg-gray-900 hover:bg-black text-white px-4 py-2 rounded-xl font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-gray-200">
                 <Plus size={18} /> <span className="hidden sm:inline">Novo Projeto</span><span className="sm:hidden">Novo</span>
             </button>
@@ -140,7 +195,6 @@ export function TaskList() {
         </div>
       </header>
 
-      {/* Lista de Projetos */}
       <div className="space-y-4">
         {filteredTasks.length === 0 ? (
             <div className="text-center py-20 bg-white rounded-3xl border border-dashed border-gray-200">
@@ -149,17 +203,33 @@ export function TaskList() {
         ) : (
             filteredTasks.map(task => {
                 const realProgress = task.id ? getRecursiveProgress(task.id) : 0;
+                const isDragging = draggedTaskId === task.id;
                 
                 return (
-                    <div key={task.id} className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                    <div 
+                        key={task.id} 
+                        draggable={selectedProjectId === 'all'}
+                        onDragStart={(e) => task.id && handleDragStart(e, task.id)}
+                        onDragOver={handleDragOver}
+                        onDrop={(e) => task.id && handleDrop(e, task.id)}
+                        className={`bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden transition-all duration-200 ${isDragging ? 'opacity-40 scale-[0.98] ring-2 ring-blue-400 border-blue-400 cursor-grabbing' : 'hover:shadow-md'}`}
+                    >
                         {selectedProjectId === 'all' && (
-                            <div className="p-4 border-b border-gray-100 bg-gray-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                                <div>
-                                    <h3 className="font-bold text-gray-800 text-lg flex items-center gap-2 cursor-pointer hover:text-blue-600 transition-colors" onClick={() => setSelectedProjectId(String(task.id))}>
-                                        {task.title} <ChevronRight size={16} className="text-gray-400" />
-                                    </h3>
-                                    <p className="text-xs text-gray-500 mt-1">Criado em {task.createdAt.toLocaleDateString()}</p>
+                            <div className="p-4 border-b border-gray-100 bg-gray-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3 group">
+                                <div className="flex items-center gap-3">
+                                    <div className="cursor-grab text-gray-300 hover:text-gray-500 active:cursor-grabbing">
+                                        <GripVertical size={20} />
+                                    </div>
+                                    
+                                    <div>
+                                        {/* AQUI ESTÁ A LÓGICA: handleOpenProject ao clicar */}
+                                        <h3 className="font-bold text-gray-800 text-lg flex items-center gap-2 cursor-pointer hover:text-blue-600 transition-colors" onClick={() => task.id && handleOpenProject(task.id)}>
+                                            {task.title} <ChevronRight size={16} className="text-gray-400" />
+                                        </h3>
+                                        <p className="text-xs text-gray-500 mt-1">Criado em {task.createdAt.toLocaleDateString()}</p>
+                                    </div>
                                 </div>
+
                                 <div className="flex items-center gap-4">
                                     <div className="flex flex-col items-end">
                                         <div className="flex items-center gap-2 mb-1">
