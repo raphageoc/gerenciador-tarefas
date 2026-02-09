@@ -22,6 +22,7 @@ export interface Task {
   sessions: Session[]; 
   resources: string[]; 
   links: { title: string; url: string }[];
+  order?: number;
 }
 
 export interface Checkin {
@@ -40,7 +41,7 @@ export class FlowDatabase extends Dexie {
   constructor() {
     super('FlowDatabase');
     this.version(1).stores({
-      tasks: '++id, parentId, status, createdAt',
+      tasks: '++id, parentId, status, createdAt, order',
       checkins: '++id, date' 
     });
   }

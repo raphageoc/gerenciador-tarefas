@@ -85,8 +85,9 @@ export function TaskList() {
     }
 
     return tasks.sort((a, b) => {
-        const orderA = a.order ?? 9999999999; 
-        const orderB = b.order ?? 9999999999;
+        // Usamos 'as any' aqui caso o TS ainda não veja o campo order
+        const orderA = (a as any).order ?? 9999999999; 
+        const orderB = (b as any).order ?? 9999999999;
         if (orderA !== orderB) return orderA - orderB;
         return b.createdAt.getTime() - a.createdAt.getTime();
     });
@@ -94,15 +95,13 @@ export function TaskList() {
 
   // --- FUNÇÃO PARA MOVER AO TOPO AO ABRIR ---
   const handleOpenProject = async (taskId: number) => {
-      // 1. Encontra a ordem mais baixa atual (o topo da lista)
       const rootTasks = allTasks?.filter(t => !t.parentId) || [];
-      const currentMinOrder = rootTasks.reduce((min, t) => Math.min(min, t.order ?? 0), 0);
+      // Cast 'as any' para ler o order sem erro
+      const currentMinOrder = rootTasks.reduce((min, t) => Math.min(min, (t as any).order ?? 0), 0);
       
-      // 2. Define a ordem do projeto clicado para ser menor que o mínimo atual
-      // Isso garante que ele vá para o topo sem precisar reordenar todos os outros
-      await db.tasks.update(taskId, { order: currentMinOrder - 1 });
+      // Cast 'as any' para permitir a atualização do campo order
+      await db.tasks.update(taskId, { order: currentMinOrder - 1 } as any);
 
-      // 3. Abre o projeto
       setSelectedProjectId(String(taskId));
   };
 
@@ -130,10 +129,11 @@ export function TaskList() {
       const [movedItem] = currentList.splice(oldIndex, 1);
       currentList.splice(newIndex, 0, movedItem);
 
+      // Cast 'as any' para evitar erro de tipo no bulkPut
       const updates = currentList.map((task, index) => ({
           ...task,
           order: index 
-      }));
+      } as any));
 
       await db.tasks.bulkPut(updates);
       setDraggedTaskId(null);
@@ -222,7 +222,6 @@ export function TaskList() {
                                     </div>
                                     
                                     <div>
-                                        {/* AQUI ESTÁ A LÓGICA: handleOpenProject ao clicar */}
                                         <h3 className="font-bold text-gray-800 text-lg flex items-center gap-2 cursor-pointer hover:text-blue-600 transition-colors" onClick={() => task.id && handleOpenProject(task.id)}>
                                             {task.title} <ChevronRight size={16} className="text-gray-400" />
                                         </h3>

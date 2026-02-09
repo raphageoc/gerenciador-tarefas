@@ -4,8 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, type Task } from '../db';
 import { 
-  Play, Pause, ArrowLeft, Volume2, VolumeX, 
-  MoreHorizontal, Wind, RotateCcw, StopCircle, Clock, Plus, AlertTriangle, 
+  Play, Pause, ArrowLeft, StopCircle, Clock, Plus, AlertTriangle, 
   Eye, ArrowUpRight, Home, ChevronRight 
 } from 'lucide-react';
 import { TaskResources } from './TaskResources';
