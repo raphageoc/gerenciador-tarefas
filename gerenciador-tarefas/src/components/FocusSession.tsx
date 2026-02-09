@@ -98,10 +98,7 @@ function FocusSessionInner({ taskId }: { taskId: number }) {
       }
   };
 
-  const handlePreviewTask = async (targetId: number) => {
-      await saveCurrentNotes();
-      setViewedTaskId(targetId);
-  };
+  
 
   const handleSmartNavigate = async (targetId: number) => {
       await saveCurrentNotes();
@@ -224,7 +221,6 @@ function FocusSessionInner({ taskId }: { taskId: number }) {
   const formatTimer = (s: number) => { const m = Math.floor(s / 60); const sec = s % 60; return `${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`; };
   const handleTimeClick = () => { setIsCountdownActive(false); setIsEditingTime(true); setEditValue(Math.ceil(timeLeft / 60).toString()); };
   const handleTimeSave = () => { let m = parseInt(editValue); if (isNaN(m) || m < 1) m = 25; setSessionDuration(m * 60); setTimeLeft(m * 60); setIsEditingTime(false); if (isSessionActive) setIsCountdownActive(true); };
-  const setSessionTime = (m: number) => { setSessionDuration(m * 60); setTimeLeft(m * 60); if (isSessionActive) setIsCountdownActive(true); };
   
   const handleAddSubtask = async (e: React.KeyboardEvent<HTMLInputElement>) => { 
     if (e.key === 'Enter') { 
