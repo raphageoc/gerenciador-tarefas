@@ -5,7 +5,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db, type Task } from '../db';
 import { 
   Play, Pause, ArrowLeft, StopCircle, Clock, Plus, AlertTriangle, 
-  Eye, ArrowUpRight, Home, ChevronRight 
+  Eye, ArrowUpRight, Home, ChevronRight, Volume2, VolumeX, Wind, RotateCcw
 } from 'lucide-react';
 import { TaskResources } from './TaskResources';
 import { BreathingModal } from './BreathingModal';
@@ -97,8 +97,6 @@ function FocusSessionInner({ taskId }: { taskId: number }) {
           await db.tasks.update(viewedTask.id, { description: notes });
       }
   };
-
-  
 
   const handleSmartNavigate = async (targetId: number) => {
       await saveCurrentNotes();
@@ -221,6 +219,7 @@ function FocusSessionInner({ taskId }: { taskId: number }) {
   const formatTimer = (s: number) => { const m = Math.floor(s / 60); const sec = s % 60; return `${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`; };
   const handleTimeClick = () => { setIsCountdownActive(false); setIsEditingTime(true); setEditValue(Math.ceil(timeLeft / 60).toString()); };
   const handleTimeSave = () => { let m = parseInt(editValue); if (isNaN(m) || m < 1) m = 25; setSessionDuration(m * 60); setTimeLeft(m * 60); setIsEditingTime(false); if (isSessionActive) setIsCountdownActive(true); };
+  const setSessionTime = (m: number) => { setSessionDuration(m * 60); setTimeLeft(m * 60); if (isSessionActive) setIsCountdownActive(true); };
   
   const handleAddSubtask = async (e: React.KeyboardEvent<HTMLInputElement>) => { 
     if (e.key === 'Enter') { 
@@ -243,7 +242,6 @@ function FocusSessionInner({ taskId }: { taskId: number }) {
   const isViewingOther = isSessionActive && (viewedTaskId !== ACTIVE_TASK_ID);
 
   return (
-    // CORREÇÃO: Removido overflow-hidden da raiz para permitir popups globais se necessário
     <div className="fixed inset-0 z-50 bg-[#FDFDFD] flex flex-col h-screen animate-in fade-in duration-300">
       
       {/* BARRA DE PROGRESSO DO TOPO */}
@@ -251,7 +249,7 @@ function FocusSessionInner({ taskId }: { taskId: number }) {
         <div className={`h-full transition-all duration-1000 ease-linear ${timeLeft === 0 ? 'bg-orange-400' : 'bg-blue-600'}`} style={{ width: `${progressPercent}%` }} />
       </div>
 
-      {/* CONTAINER PRINCIPAL: min-h-0 é essencial, mas removemos overflow-hidden */}
+      {/* CONTAINER PRINCIPAL */}
       <div className="flex-1 flex flex-col p-4 md:p-6 max-w-[1600px] w-full mx-auto min-h-0">
         
         {/* HEADER */}
@@ -268,12 +266,20 @@ function FocusSessionInner({ taskId }: { taskId: number }) {
             <div className="flex-1 flex flex-col items-center justify-center border-y md:border-y-0 md:border-x border-gray-100 py-4 md:py-0 px-4">
                 <span className="text-[10px] font-bold text-gray-400 tracking-widest uppercase mb-1 flex items-center gap-1">Contador Regressivo</span>
                 {isEditingTime ? (<div className="flex items-baseline border-b-2 border-blue-500 pb-1"><input autoFocus type="number" value={editValue} onChange={(e) => setEditValue(e.target.value)} onBlur={handleTimeSave} onKeyDown={(e) => e.key === 'Enter' && handleTimeSave()} className="text-5xl font-mono font-light text-gray-800 w-24 bg-transparent outline-none text-center" /><span className="text-sm text-gray-400 ml-1">min</span></div>) : (<div onClick={handleTimeClick} className="group relative cursor-pointer flex flex-col items-center"><span className={`text-6xl font-mono font-light tracking-tighter tabular-nums transition-colors ${timeLeft === 0 ? 'text-orange-400' : 'text-gray-800'}`}>{formatTimer(timeLeft)}</span>{timeLeft === 0 && isSessionActive && <span className="text-[10px] font-bold text-white bg-orange-400 px-2 py-0.5 rounded-full uppercase tracking-wider animate-pulse absolute -bottom-3 shadow-sm">Tempo Livre</span>}</div>)}
+                <div className="flex gap-1 mt-2">
+                    {[10, 25, 45, 60].map(m => (<button key={m} onClick={() => setSessionTime(m)} className={`text-[10px] px-2 py-1 rounded transition-colors ${sessionDuration === m * 60 ? 'bg-blue-100 text-blue-700 font-bold' : 'bg-gray-50 text-gray-400 hover:bg-gray-100'}`}>{m}m</button>))}
+                    <button onClick={() => setSessionTime(sessionDuration / 60)} className="text-gray-300 hover:text-blue-600 p-1" title="Reiniciar"><RotateCcw size={12} /></button>
+                </div>
             </div>
 
             <div className="flex-1 flex flex-col items-end justify-center gap-4">
                 <div className="flex items-center gap-3">
                     <button onClick={handlePlayClick} className={`h-12 px-6 rounded-xl flex items-center justify-center gap-2 transition-all shadow-sm font-bold text-sm ${isSessionActive ? 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200 border border-yellow-200' : 'bg-blue-600 text-white hover:bg-blue-700 shadow-blue-200'}`}>{isSessionActive ? <><Pause size={18} fill="currentColor" /> PAUSAR</> : <><Play size={18} fill="currentColor" /> INICIAR</>}</button>
                     <button onClick={attemptExit} className="w-12 h-12 rounded-xl bg-white border-2 border-red-50 text-red-400 hover:border-red-500 hover:bg-red-500 hover:text-white transition-all flex items-center justify-center" title="Parar e Sair"><StopCircle size={20} /></button>
+                </div>
+                <div className="flex items-center gap-2">
+                    <button onClick={() => setIsPlayingAudio(!isPlayingAudio)} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${isPlayingAudio ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>{isPlayingAudio ? <Volume2 size={14} /> : <VolumeX size={14} />} <span className="hidden lg:inline">Foco Sonoro</span></button>
+                    <button onClick={() => { if(isSessionActive) handlePlayClick(); setIsBreathing(true); }} className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"><Wind size={14} /> <span className="hidden lg:inline">Respirar</span></button>
                 </div>
             </div>
         </div>
@@ -315,8 +321,6 @@ function FocusSessionInner({ taskId }: { taskId: number }) {
                         </div>
                     </div>
 
-                    {/* Scroll está AQUI. Se o popup for filho de um item aqui, ele ainda será cortado pelo overflow-y-auto. 
-                        Popups devem usar Portais para sair deste contexto. */}
                     <div className="flex-1 overflow-y-auto space-y-1 pr-1 min-h-0">
                         {sortedSubtasks?.length === 0 && <div className="text-center py-8 text-gray-400 text-xs italic">Sem subtarefas.</div>}
                         {sortedSubtasks?.map(sub => (
