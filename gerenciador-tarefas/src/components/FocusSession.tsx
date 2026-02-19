@@ -5,7 +5,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db, type Task } from '../db';
 import { 
   Play, Pause, ArrowLeft, StopCircle, Clock, Plus, AlertTriangle, 
-  Eye, ArrowUpRight, Home, ChevronRight, Volume2, VolumeX, Wind, RotateCcw
+  Eye, ArrowUpRight, Home, ChevronRight, Volume2, VolumeX, Wind, RotateCcw, MoreHorizontal
 } from 'lucide-react';
 import { TaskResources } from './TaskResources';
 import { BreathingModal } from './BreathingModal';
