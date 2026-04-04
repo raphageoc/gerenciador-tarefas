@@ -5,6 +5,7 @@ import  App  from './App'; // ou o nome do seu arquivo principal
 import { GoogleOAuthProvider } from '@react-oauth/google';
 import './index.css';
 
+
 // COLE SUA CHAVE AQUI:
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
