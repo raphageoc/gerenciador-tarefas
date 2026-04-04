@@ -32,6 +32,10 @@ export interface Task {
   resources: TaskResource[];
   links: string[]; 
   progress?: number; 
+  
+  // --- CAMPOS ADICIONADOS PARA AS NOVAS FUNCIONALIDADES ---
+  order?: number;       // Usado para salvar a ordem do Drag and Drop
+  completedAt?: Date;   // Usado para salvar o momento em que a tarefa foi marcada como 'done'
 }
 
 export interface CheckIn {
@@ -51,8 +55,16 @@ export class FlowManagerDB extends Dexie {
 
   constructor() {
     super('FlowManagerDB');
+    
+    // Sua versão original
     this.version(1).stores({
       tasks: '++id, parentId, status, createdAt',
+      checkins: '++id, date'
+    });
+
+    // Versão 2: Atualiza o banco do navegador automaticamente para indexar o "order"
+    this.version(2).stores({
+      tasks: '++id, parentId, status, createdAt, order',
       checkins: '++id, date'
     });
   }

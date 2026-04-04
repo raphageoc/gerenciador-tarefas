@@ -1,4 +1,5 @@
 // src/components/TaskItem.tsx
+// src/components/TaskItem.tsx
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { 
   CheckSquare, Square, Plus, 
@@ -15,6 +16,13 @@ interface Props {
   depth?: number;
   onNavigate?: (taskId: number) => void; // NOVO: Prop opcional para customizar a navegação
 }
+
+// Formatador adicionado apenas para a exibição compacta de data e hora
+const formatDateTime = (date: Date) => {
+    return date.toLocaleDateString('pt-BR', {
+        day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
+    });
+};
 
 export function TaskItem({ task, depth = 0, onNavigate }: Props) {
   const navigate = useNavigate();
@@ -69,12 +77,14 @@ export function TaskItem({ task, depth = 0, onNavigate }: Props) {
       const allDone = siblings.every(t => t.status === 'done');
       if (allDone) {
           if (parent.status !== 'done') {
-              await db.tasks.update(parentId, { status: 'done', progress: 100 });
+              // Apenas adicionado: completedAt
+              await db.tasks.update(parentId, { status: 'done', progress: 100, completedAt: new Date() });
               if (parent.parentId) await updateParentStatusRecursively(parent.parentId);
           }
       } else {
           if (parent.status === 'done') {
-              await db.tasks.update(parentId, { status: 'todo', progress: 0 });
+              // Apenas adicionado: remover completedAt
+              await db.tasks.update(parentId, { status: 'todo', progress: 0, completedAt: undefined as any });
               if (parent.parentId) await updateParentStatusRecursively(parent.parentId);
           }
       }
@@ -85,7 +95,11 @@ export function TaskItem({ task, depth = 0, onNavigate }: Props) {
     if (!task.id) return;
     const newStatus = task.status === 'done' ? 'todo' : 'done';
     const newProgress = newStatus === 'done' ? 100 : 0;
-    await db.tasks.update(task.id, { status: newStatus, progress: newProgress });
+    
+    // Apenas adicionado: Definir a data se concluído
+    const newCompletedAt = newStatus === 'done' ? new Date() : undefined as any;
+    
+    await db.tasks.update(task.id, { status: newStatus, progress: newProgress, completedAt: newCompletedAt });
     if (task.parentId) await updateParentStatusRecursively(task.parentId);
   };
 
@@ -96,7 +110,6 @@ export function TaskItem({ task, depth = 0, onNavigate }: Props) {
     }
   };
 
-  // MUDANÇA AQUI: Usa a prop onNavigate se existir, senão usa o padrão
   const handleNavigate = () => {
       if (!task.id) return;
       
@@ -118,7 +131,8 @@ export function TaskItem({ task, depth = 0, onNavigate }: Props) {
     });
     setIsExpanded(true);
     if (task.status === 'done') {
-        await db.tasks.update(task.id, { status: 'todo', progress: 0 });
+        // Apenas adicionado: remover completedAt ao reabrir
+        await db.tasks.update(task.id, { status: 'todo', progress: 0, completedAt: undefined as any });
         if (task.parentId) await updateParentStatusRecursively(task.parentId);
     }
   };
@@ -180,9 +194,13 @@ export function TaskItem({ task, depth = 0, onNavigate }: Props) {
           ) : (
             <div className="flex flex-col gap-1">
                 <span className={`text-sm font-medium leading-tight ${task.status === 'done' ? 'text-gray-400 line-through' : 'text-gray-700'}`}>{task.title}</span>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center flex-wrap gap-3">
                     {task.deadline && (<span className={`text-[10px] flex items-center gap-1 ${new Date(task.deadline) < new Date() && task.status !== 'done' ? 'text-red-500 font-bold' : 'text-gray-400'}`}><Calendar size={10} /> {new Date(task.deadline).toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit'})}</span>)}
                     {hasSubtasks && (<div className="flex items-center gap-2"><div className="w-12 h-1 bg-gray-100 rounded-full overflow-hidden"><div className="h-full bg-blue-500 transition-all duration-500" style={{ width: `${calculatedProgress}%` }} /></div><span className="text-[10px] text-gray-400 font-mono">{Math.round(calculatedProgress)}%</span></div>)}
+                    
+                    {/* Apenas as datas foram adicionadas visualmente aqui: */}
+                    {task.createdAt && <span className="text-[10px] text-gray-400 font-mono">Criada: {formatDateTime(task.createdAt)}</span>}
+                    {task.status === 'done' && task.completedAt && <span className="text-[10px] text-gray-400 font-mono">Feita: {formatDateTime(task.completedAt)}</span>}
                 </div>
             </div>
           )}

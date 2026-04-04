@@ -5,13 +5,21 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db, type Task } from '../db';
 import { 
   Play, Pause, ArrowLeft, StopCircle, Clock, Plus, AlertTriangle, 
-  Eye, ArrowUpRight, Home, ChevronRight, Volume2, VolumeX, Wind, RotateCcw
+  Eye, ArrowUpRight, Home, ChevronRight, Volume2, VolumeX, Wind, RotateCcw,
+  List, CheckSquare, Bold 
 } from 'lucide-react';
 import { TaskResources } from './TaskResources';
 import { BreathingModal } from './BreathingModal';
 import { PreSessionModal } from './PreSessionModal';
 import { TaskItem } from './TaskItem';
 import brownNoiseUrl from '../assets/pinknoise.mp3'; 
+
+// --- ÁUDIO GLOBAL ---
+const noiseAudio = new Audio(brownNoiseUrl);
+noiseAudio.loop = true;
+noiseAudio.volume = 0.5;
+
+const alarmAudio = new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg');
 
 // --- WRAPPER ---
 export function FocusSession() {
@@ -24,9 +32,24 @@ export function FocusSession() {
 function FocusSessionInner({ taskId }: { taskId: number }) {
   const navigate = useNavigate();
   const ACTIVE_TASK_ID = taskId;
+  
   const [viewedTaskId, setViewedTaskId] = useState(ACTIVE_TASK_ID);
+  
+  const viewedTaskIdRef = useRef(ACTIVE_TASK_ID);
+  const notesRef = useRef(""); 
+  const editorRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => { setViewedTaskId(ACTIVE_TASK_ID); }, [ACTIVE_TASK_ID]);
+  // NOVO: Estado para controlar qual subtarefa está sendo arrastada
+  const [draggedSubtaskId, setDraggedSubtaskId] = useState<number | null>(null);
+
+  useEffect(() => { 
+      setViewedTaskId(ACTIVE_TASK_ID); 
+      viewedTaskIdRef.current = ACTIVE_TASK_ID;
+  }, [ACTIVE_TASK_ID]);
+
+  useEffect(() => { 
+      viewedTaskIdRef.current = viewedTaskId; 
+  }, [viewedTaskId]);
 
   // Queries
   const allTasks = useLiveQuery(() => db.tasks.toArray());
@@ -37,10 +60,19 @@ function FocusSessionInner({ taskId }: { taskId: number }) {
     db.tasks.where('parentId').equals(viewedTaskId).toArray()
   , [viewedTaskId]);
   
+  // ATUALIZADO: Ordenar subtarefas considerando o campo "order"
   const sortedSubtasks = subtasks?.sort((a, b) => {
+    // 1. Prioridade para tarefas concluídas irem para o final
     if (a.status === 'done' && b.status !== 'done') return 1;
     if (a.status !== 'done' && b.status === 'done') return -1;
-    return 0;
+    
+    // 2. Ordem customizada pelo Drag and Drop
+    const orderA = a.order ?? 999999;
+    const orderB = b.order ?? 999999;
+    if (orderA !== orderB) return orderA - orderB;
+
+    // 3. Fallback: Data de criação
+    return a.createdAt.getTime() - b.createdAt.getTime();
   });
 
   const breadcrumbs = useMemo(() => {
@@ -69,14 +101,12 @@ function FocusSessionInner({ taskId }: { taskId: number }) {
   const [timeLeft, setTimeLeft] = useState(25 * 60); 
   const [isEditingTime, setIsEditingTime] = useState(false);
   const [editValue, setEditValue] = useState("25");
-  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   
+  const [isNoisePlaying, setIsNoisePlaying] = useState(!noiseAudio.paused && noiseAudio.currentTime > 0);
   const [notes, setNotes] = useState("");
   const [isBreathing, setIsBreathing] = useState(false);
   const [newSubtaskTitle, setNewSubtaskTitle] = useState("");
-  
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const alarmRef = useRef<HTMLAudioElement | null>(null);
+  const [loadedTaskId, setLoadedTaskId] = useState<number | null>(null);
 
   useEffect(() => { isSessionActiveRef.current = isSessionActive; }, [isSessionActive]);
 
@@ -87,15 +117,26 @@ function FocusSessionInner({ taskId }: { taskId: number }) {
   }, [activeTask]);
 
   useEffect(() => {
-    if (viewedTask) {
-        setNotes(viewedTask.description || "");
+    if (viewedTask && viewedTask.id === viewedTaskId && loadedTaskId !== viewedTaskId) {
+        const desc = viewedTask.description || "";
+        if (editorRef.current) {
+            editorRef.current.innerHTML = desc;
+        }
+        setNotes(desc);
+        notesRef.current = desc;
+        setLoadedTaskId(viewedTaskId);
     }
-  }, [viewedTask?.id]);
+  }, [viewedTask, viewedTaskId, loadedTaskId]);
 
   const saveCurrentNotes = async () => {
-      if (viewedTask && notes !== viewedTask.description) {
-          await db.tasks.update(viewedTask.id, { description: notes });
-      }
+    const currentId = viewedTaskIdRef.current;
+    const currentNotes = notesRef.current;
+    if (currentId) {
+        const task = await db.tasks.get(currentId);
+        if (task && task.description !== currentNotes) {
+            await db.tasks.update(currentId, { description: currentNotes });
+        }
+    }
   };
 
   const handleSmartNavigate = async (targetId: number) => {
@@ -145,11 +186,35 @@ function FocusSessionInner({ taskId }: { taskId: number }) {
       } catch (e) { console.error("Erro save:", e); }
   };
 
+  const toggleNoise = () => {
+      if (isNoisePlaying) {
+          noiseAudio.pause();
+          setIsNoisePlaying(false);
+      } else {
+          noiseAudio.play().then(() => {
+              setIsNoisePlaying(true);
+          }).catch(e => {
+              console.error("Erro ao tocar áudio:", e);
+              setIsNoisePlaying(false);
+          });
+      }
+  };
+
+  const forceStopNoise = () => {
+      noiseAudio.pause();
+      setIsNoisePlaying(false);
+  };
+
+  const playAlarm = () => { 
+      alarmAudio.currentTime = 0;
+      alarmAudio.play().catch(console.error); 
+  };
+
   useEffect(() => { 
     return () => { 
         if (isSessionActiveRef.current) executeFinalSave(); 
-        if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
         saveCurrentNotes(); 
+        forceStopNoise();
     }; 
   }, []);
 
@@ -176,9 +241,11 @@ function FocusSessionInner({ taskId }: { taskId: number }) {
   }, [isSessionActive, isCountdownActive, isEditingTime, activeTask]);
 
   const attemptExit = () => { if (isSessionActive) setShowExitConfirm(true); else manualExit(); };
+  
   const manualExit = async () => {
     if (isSessionActive) await executeFinalSave();
     await saveCurrentNotes();
+    forceStopNoise();
     navigate('/');
   };
 
@@ -188,7 +255,7 @@ function FocusSessionInner({ taskId }: { taskId: number }) {
         await executeFinalSave();
         setIsSessionActive(false);
         setIsCountdownActive(false);
-        if (isPlayingAudio) setIsPlayingAudio(false);
+        forceStopNoise();
     } else {
         setShowPreSession(true);
     }
@@ -207,14 +274,6 @@ function FocusSessionInner({ taskId }: { taskId: number }) {
     if (timeLeft > 0) setIsCountdownActive(true);
   };
 
-  useEffect(() => {
-    if (isPlayingAudio) {
-      if (!audioRef.current) { audioRef.current = new Audio(brownNoiseUrl); audioRef.current.loop = true; }
-      audioRef.current.play().catch(e => { console.error("Erro audio:", e); setIsPlayingAudio(false); });
-    } else { audioRef.current?.pause(); }
-  }, [isPlayingAudio]);
-
-  const playAlarm = () => { if (!alarmRef.current) alarmRef.current = new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg'); alarmRef.current.play().catch(console.error); };
   const formatTotalTime = (totalSeconds: number) => { const h = Math.floor(totalSeconds / 3600); const m = Math.floor((totalSeconds % 3600) / 60); const s = totalSeconds % 60; return `${h}h ${m}m ${s}s`; };
   const formatTimer = (s: number) => { const m = Math.floor(s / 60); const sec = s % 60; return `${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`; };
   const handleTimeClick = () => { setIsCountdownActive(false); setIsEditingTime(true); setEditValue(Math.ceil(timeLeft / 60).toString()); };
@@ -227,15 +286,95 @@ function FocusSessionInner({ taskId }: { taskId: number }) {
         const titleToAdd = newSubtaskTitle.trim();
         if (!titleToAdd || !viewedTask?.id) return;
         setNewSubtaskTitle(""); 
+        
+        // Define a ordem da nova tarefa como o último da lista
+        const lastOrder = sortedSubtasks && sortedSubtasks.length > 0 
+            ? Math.max(...sortedSubtasks.map(t => t.order || 0)) 
+            : 0;
+
         await db.tasks.add({ 
             parentId: viewedTask.id, title: titleToAdd, description: '', 
             status: 'todo', progress: 0, createdAt: new Date(), timeSpentMs: 0, 
-            sessions: [], resources: [], links: [] 
+            sessions: [], resources: [], links: [], order: lastOrder + 1
         }); 
     } 
   };
 
-  const handleNoteChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => { setNotes(e.target.value); };
+  // --- NOVO: FUNÇÕES DE DRAG AND DROP (SUBTAREFAS) ---
+  const handleDragStart = (e: React.DragEvent, id: number) => {
+      setDraggedSubtaskId(id);
+      e.dataTransfer.effectAllowed = "move";
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+  };
+
+  const handleDrop = async (e: React.DragEvent, targetId: number) => {
+      e.preventDefault();
+      if (draggedSubtaskId === null || draggedSubtaskId === targetId || !sortedSubtasks) return;
+
+      const currentList = [...sortedSubtasks];
+      const oldIndex = currentList.findIndex(t => t.id === draggedSubtaskId);
+      const newIndex = currentList.findIndex(t => t.id === targetId);
+
+      if (oldIndex === -1 || newIndex === -1) return;
+
+      const [movedItem] = currentList.splice(oldIndex, 1);
+      currentList.splice(newIndex, 0, movedItem);
+
+      // Atualiza a ordem mantendo a prioridade no Dexie
+      const updates = currentList.map((task, index) => ({
+          ...task,
+          order: index 
+      }));
+
+      await db.tasks.bulkPut(updates);
+      setDraggedSubtaskId(null);
+  };
+
+  const handleEditorInput = (e: React.FormEvent<HTMLDivElement>) => {
+      const html = e.currentTarget.innerHTML;
+      setNotes(html);
+      notesRef.current = html;
+  };
+
+  const handleEditorChange = (e: React.FormEvent<HTMLDivElement>) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' && target.getAttribute('type') === 'checkbox') {
+          const checkbox = target as HTMLInputElement;
+          if (checkbox.checked) {
+              checkbox.setAttribute('checked', 'true');
+          } else {
+              checkbox.removeAttribute('checked');
+          }
+          const html = editorRef.current?.innerHTML || "";
+          setNotes(html);
+          notesRef.current = html;
+      }
+  };
+
+  const handleFormat = (command: string) => {
+      document.execCommand(command, false);
+      editorRef.current?.focus();
+      if (editorRef.current) {
+          const html = editorRef.current.innerHTML;
+          setNotes(html);
+          notesRef.current = html;
+      }
+  };
+
+  const applyChecklist = () => {
+      const html = `<input type="checkbox" style="margin-right: 6px; cursor: pointer; width: 14px; height: 14px; vertical-align: middle;">&nbsp;`;
+      document.execCommand('insertHTML', false, html);
+      editorRef.current?.focus();
+      if (editorRef.current) {
+          const htmlStr = editorRef.current.innerHTML;
+          setNotes(htmlStr);
+          notesRef.current = htmlStr;
+      }
+  };
 
   if (!activeTask || !viewedTask) return <div className="p-10 opacity-50">Carregando...</div>;
   const progressPercent = sessionDuration > 0 ? Math.max(0, (timeLeft / sessionDuration) * 100) : 0;
@@ -244,12 +383,10 @@ function FocusSessionInner({ taskId }: { taskId: number }) {
   return (
     <div className="fixed inset-0 z-50 bg-[#FDFDFD] flex flex-col h-screen animate-in fade-in duration-300">
       
-      {/* BARRA DE PROGRESSO DO TOPO */}
       <div className="absolute top-0 left-0 w-full h-[4px] bg-gray-100 z-50">
         <div className={`h-full transition-all duration-1000 ease-linear ${timeLeft === 0 ? 'bg-orange-400' : 'bg-blue-600'}`} style={{ width: `${progressPercent}%` }} />
       </div>
 
-      {/* CONTAINER PRINCIPAL */}
       <div className="flex-1 flex flex-col p-4 md:p-6 max-w-[1600px] w-full mx-auto min-h-0">
         
         {/* HEADER */}
@@ -278,13 +415,13 @@ function FocusSessionInner({ taskId }: { taskId: number }) {
                     <button onClick={attemptExit} className="w-12 h-12 rounded-xl bg-white border-2 border-red-50 text-red-400 hover:border-red-500 hover:bg-red-500 hover:text-white transition-all flex items-center justify-center" title="Parar e Sair"><StopCircle size={20} /></button>
                 </div>
                 <div className="flex items-center gap-2">
-                    <button onClick={() => setIsPlayingAudio(!isPlayingAudio)} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${isPlayingAudio ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>{isPlayingAudio ? <Volume2 size={14} /> : <VolumeX size={14} />} <span className="hidden lg:inline">Foco Sonoro</span></button>
+                    <button onClick={toggleNoise} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${isNoisePlaying ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>{isNoisePlaying ? <Volume2 size={14} /> : <VolumeX size={14} />} <span className="hidden lg:inline">Foco Sonoro</span></button>
                     <button onClick={() => { if(isSessionActive) handlePlayClick(); setIsBreathing(true); }} className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"><Wind size={14} /> <span className="hidden lg:inline">Respirar</span></button>
                 </div>
             </div>
         </div>
 
-        {/* --- BARRA DE AVISO --- */}
+        {/* BARRA DE AVISO */}
         {isViewingOther && (
             <div className="mb-4 bg-blue-50 border border-blue-100 p-3 rounded-xl flex items-center justify-between animate-in fade-in slide-in-from-top-2 flex-shrink-0">
                 <div className="flex items-center gap-3">
@@ -302,10 +439,8 @@ function FocusSessionInner({ taskId }: { taskId: number }) {
         )}
 
         <div className="flex-1 grid grid-cols-1 md:grid-cols-12 gap-4 min-h-0">
-            {/* COLUNA ESQUERDA: Removido overflow-hidden para não cortar popups */}
+            {/* COLUNA ESQUERDA */}
             <div className="col-span-1 md:col-span-4 flex flex-col gap-3 h-full min-h-0">
-                
-                {/* LISTA DE PASSOS (Removido overflow-hidden do Card Pai) */}
                 <div className={`bg-white rounded-xl border p-4 flex flex-col flex-1 min-h-0 shadow-sm transition-colors ${isViewingOther ? 'border-blue-100 ring-2 ring-blue-50' : 'border-gray-100'}`}>
                     <div className="flex flex-col items-start justify-between mb-3 border-b border-gray-100 pb-2 gap-2 flex-shrink-0">
                         <div className="flex items-center flex-wrap gap-1 text-xs text-gray-500 w-full">
@@ -323,11 +458,25 @@ function FocusSessionInner({ taskId }: { taskId: number }) {
 
                     <div className="flex-1 overflow-y-auto space-y-1 pr-1 min-h-0">
                         {sortedSubtasks?.length === 0 && <div className="text-center py-8 text-gray-400 text-xs italic">Sem subtarefas.</div>}
-                        {sortedSubtasks?.map(sub => (
-                            <div key={sub.id} className="scale-[0.98] origin-left">
-                                <TaskItem task={sub} onNavigate={handleSmartNavigate} />
-                            </div>
-                        ))}
+                        
+                        {/* ATUALIZADO: Lista com Drag and Drop para as subtarefas */}
+                        {sortedSubtasks?.map(sub => {
+                            const isDragging = draggedSubtaskId === sub.id;
+                            
+                            return (
+                                <div 
+                                    key={sub.id} 
+                                    className={`scale-[0.98] origin-left transition-all ${isDragging ? 'opacity-40 ring-2 ring-blue-400 rounded-xl' : ''}`}
+                                    draggable
+                                    onDragStart={(e) => sub.id && handleDragStart(e, sub.id)}
+                                    onDragOver={handleDragOver}
+                                    onDrop={(e) => sub.id && handleDrop(e, sub.id)}
+                                >
+                                    <TaskItem task={sub} onNavigate={handleSmartNavigate} />
+                                </div>
+                            );
+                        })}
+                        
                         <div className="flex items-center gap-2 mt-2 px-2 py-1 bg-gray-50 rounded-lg focus-within:ring-2 focus-within:ring-blue-100 flex-shrink-0">
                             <Plus className="text-gray-400" size={14} />
                             <input type="text" placeholder="Adicionar passo..." className="w-full bg-transparent text-sm outline-none text-gray-600 placeholder-gray-400" value={newSubtaskTitle} onChange={(e) => setNewSubtaskTitle(e.target.value)} onKeyDown={handleAddSubtask} />
@@ -335,22 +484,60 @@ function FocusSessionInner({ taskId }: { taskId: number }) {
                     </div>
                 </div>
 
-                {/* RECURSOS */}
                 <div className={`flex-1 min-h-0 rounded-xl border shadow-sm transition-colors ${isViewingOther ? 'border-blue-100 ring-2 ring-blue-50' : 'border-gray-100'}`}>
                     <TaskResources task={viewedTask} />
                 </div>
             </div>
 
-            {/* NOTAS */}
+            {/* EDITOR RICO (WYSIWYG) */}
             <div className={`col-span-1 md:col-span-8 bg-white rounded-2xl shadow-sm border flex flex-col overflow-hidden relative group min-h-[400px] md:h-full md:min-h-0 transition-colors ${isViewingOther ? 'border-blue-100 ring-2 ring-blue-50' : 'border-gray-100'}`}>
+                
                 <div className="p-3 border-b border-gray-50 bg-gray-50/50 flex justify-between items-center flex-shrink-0">
-                    <span className="text-xs font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
-                        {isViewingOther ? <Eye size={12} className="text-blue-400"/> : null}
-                        Notas de: <span className="text-gray-700">{viewedTask.title}</span>
+                    <div className="flex items-center gap-4">
+                        <span className="text-xs font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                            {isViewingOther ? <Eye size={12} className="text-blue-400"/> : null}
+                            Notas de: <span className="text-gray-700">{viewedTask.title}</span>
+                        </span>
+                        
+                        <div className="flex items-center gap-1 border-l border-gray-200 pl-4">
+                            <button 
+                                onClick={() => handleFormat('bold')} 
+                                className="p-1.5 text-gray-500 hover:text-gray-800 hover:bg-gray-200 rounded transition-colors" 
+                                title="Negrito (Ctrl+B)"
+                            >
+                                <Bold size={14} />
+                            </button>
+                            <button 
+                                onClick={() => handleFormat('insertUnorderedList')} 
+                                className="p-1.5 text-gray-500 hover:text-gray-800 hover:bg-gray-200 rounded transition-colors" 
+                                title="Criar Lista"
+                            >
+                                <List size={14} />
+                            </button>
+                            <button 
+                                onClick={applyChecklist} 
+                                className="p-1.5 text-gray-500 hover:text-gray-800 hover:bg-gray-200 rounded transition-colors" 
+                                title="Adicionar Checkbox"
+                            >
+                                <CheckSquare size={14} />
+                            </button>
+                        </div>
+                    </div>
+
+                    <span className="text-[10px] text-gray-400">
+                        {notes.replace(/<[^>]*>?/gm, '').length} caracteres
                     </span>
-                    <span className="text-[10px] text-gray-400">{notes.length} caracteres</span>
                 </div>
-                <textarea value={notes} onChange={handleNoteChange} placeholder={`Ideias sobre ${viewedTask.title}...`} className="flex-1 w-full h-full p-6 resize-none outline-none text-gray-700 text-base leading-relaxed font-normal placeholder-gray-300" spellCheck={false} />
+
+                <div 
+                    ref={editorRef}
+                    contentEditable
+                    onInput={handleEditorInput}
+                    onChange={handleEditorChange}
+                    data-placeholder={`Ideias sobre ${viewedTask.title}...`} 
+                    className="flex-1 w-full h-full p-6 outline-none text-gray-700 text-base leading-relaxed font-normal overflow-y-auto empty:before:content-[attr(data-placeholder)] empty:before:text-gray-300 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_b]:font-bold [&_strong]:font-bold" 
+                    spellCheck={false} 
+                />
             </div>
         </div>
       </div>
