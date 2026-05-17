@@ -85,6 +85,7 @@ export function DataManagementModal({ isOpen, onClose }: Props) {
   const executeDriveBackup = async (accessToken: string) => {
     setStatusMsg('Empacotando e enviando para o Drive...');
     try {
+      // 1. SALVA O BACKUP DOS DADOS
       const tasks = await db.tasks.toArray();
       const checkins = await db.checkins.toArray();
       const data = { version: 1, timestamp: new Date().toISOString(), tasks, checkins };
@@ -113,10 +114,53 @@ export function DataManagementModal({ isOpen, onClose }: Props) {
         body: form,
       });
 
-      if (!uploadRes.ok) throw new Error('Falha no upload');
+      if (!uploadRes.ok) throw new Error('Falha no upload do backup');
 
-      setStatusMsg('Backup salvo com sucesso no Google Drive!');
-      setTimeout(() => setStatusMsg(''), 3000);
+      // =========================================================
+      // 2. NOVO: LIBERA O LOCK (DESTRAVA O APP PARA OUTRO PC)
+      // =========================================================
+      setStatusMsg('Liberando acesso para outros dispositivos...');
+      const lockSearchRes = await fetch("https://www.googleapis.com/drive/v3/files?q=name='flowmanager_lock.json' and trashed=false", {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      const lockSearchData = await lockSearchRes.json();
+      const lockFileId = lockSearchData.files?.[0]?.id;
+
+      if (lockFileId) {
+        // Pega o ID do dispositivo atual
+        const deviceId = localStorage.getItem('flow_device_id') || 'unknown';
+        
+        // Define isLocked como false
+        const unlockData = {
+          deviceId: deviceId,
+          userAgent: navigator.userAgent.substring(0, 40) + '...',
+          isLocked: false, // <--- LIBERADO
+          lastOpened: new Date().toISOString()
+        };
+        
+        const lockBlob = new Blob([JSON.stringify(unlockData)], { type: 'application/json' });
+        const lockMetadata = { name: 'flowmanager_lock.json', mimeType: 'application/json' };
+        
+        const lockForm = new FormData();
+        lockForm.append('metadata', new Blob([JSON.stringify(lockMetadata)], { type: 'application/json' }));
+        lockForm.append('file', lockBlob);
+
+        await fetch(`https://www.googleapis.com/upload/drive/v3/files/${lockFileId}?uploadType=multipart`, {
+          method: 'PATCH',
+          headers: { Authorization: `Bearer ${accessToken}` },
+          body: lockForm,
+        });
+      }
+      // =========================================================
+
+      setStatusMsg('Backup salvo e app destravado com sucesso!');
+      
+      // Fecha o aplicativo/modal para o usuário saber que já pode sair
+      setTimeout(() => {
+        setStatusMsg('');
+        onClose(); 
+      }, 3000);
+
     } catch (error) {
       console.error(error);
       setStatusMsg('Erro ao salvar no Drive.');
