@@ -37,7 +37,9 @@ function FocusSessionInner({ taskId }: { taskId: number }) {
   
   const viewedTaskIdRef = useRef(ACTIVE_TASK_ID);
   const notesRef = useRef(""); 
+  
   const editorRef = useRef<HTMLDivElement>(null);
+  const isNotesLoadedRef = useRef(false);
 
   // NOVO: Estado para controlar qual subtarefa está sendo arrastada
   const [draggedSubtaskId, setDraggedSubtaskId] = useState<number | null>(null);
@@ -49,12 +51,15 @@ function FocusSessionInner({ taskId }: { taskId: number }) {
 
   useEffect(() => { 
       viewedTaskIdRef.current = viewedTaskId; 
+      isNotesLoadedRef.current = false;
   }, [viewedTaskId]);
+  
 
   // Queries
   const allTasks = useLiveQuery(() => db.tasks.toArray());
   const activeTask = useLiveQuery(() => db.tasks.get(ACTIVE_TASK_ID), [ACTIVE_TASK_ID]);
   const viewedTask = useLiveQuery(() => db.tasks.get(viewedTaskId), [viewedTaskId]);
+  
   
   const subtasks = useLiveQuery(() => 
     db.tasks.where('parentId').equals(viewedTaskId).toArray()
@@ -117,27 +122,33 @@ function FocusSessionInner({ taskId }: { taskId: number }) {
   }, [activeTask]);
 
   useEffect(() => {
-    if (viewedTask && viewedTask.id === viewedTaskId && loadedTaskId !== viewedTaskId) {
-        const desc = viewedTask.description || "";
-        if (editorRef.current) {
-            editorRef.current.innerHTML = desc;
-        }
-        setNotes(desc);
-        notesRef.current = desc;
-        setLoadedTaskId(viewedTaskId);
-    }
-  }, [viewedTask, viewedTaskId, loadedTaskId]);
+  if (viewedTask && viewedTask.id === viewedTaskId && loadedTaskId !== viewedTaskId) {
+      const desc = viewedTask.description || "";
+      if (editorRef.current) {
+          editorRef.current.innerHTML = desc;
+      }
+      setNotes(desc);
+      notesRef.current = desc;
+      setLoadedTaskId(viewedTaskId);
+      isNotesLoadedRef.current = true; // <--- SINALIZA QUE FOI CARREGADO COM SUCESSO
+  }
+}, [viewedTask, viewedTaskId, loadedTaskId]);
 
   const saveCurrentNotes = async () => {
-    const currentId = viewedTaskIdRef.current;
-    const currentNotes = notesRef.current;
-    if (currentId) {
-        const task = await db.tasks.get(currentId);
-        if (task && task.description !== currentNotes) {
-            await db.tasks.update(currentId, { description: currentNotes });
-        }
-    }
-  };
+  // Se as notas ainda não foram carregadas, ABORTE o salvamento!
+  // Isso evita que um texto vazio sobrescreva o banco acidentalmente.
+  if (!isNotesLoadedRef.current) return; 
+
+  const currentId = viewedTaskIdRef.current;
+  const currentNotes = notesRef.current;
+  
+  if (currentId) {
+      const task = await db.tasks.get(currentId);
+      if (task && task.description !== currentNotes) {
+          await db.tasks.update(currentId, { description: currentNotes });
+      }
+  }
+};
 
   const handleSmartNavigate = async (targetId: number) => {
       await saveCurrentNotes();
@@ -340,20 +351,41 @@ function FocusSessionInner({ taskId }: { taskId: number }) {
       notesRef.current = html;
   };
 
-  const handleEditorChange = (e: React.FormEvent<HTMLDivElement>) => {
-      const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' && target.getAttribute('type') === 'checkbox') {
-          const checkbox = target as HTMLInputElement;
-          if (checkbox.checked) {
-              checkbox.setAttribute('checked', 'true');
-          } else {
-              checkbox.removeAttribute('checked');
-          }
-          const html = editorRef.current?.innerHTML || "";
-          setNotes(html);
-          notesRef.current = html;
-      }
-  };
+//   const handleEditorChange = (e: React.FormEvent<HTMLDivElement>) => {
+//       const target = e.target as HTMLElement;
+//       if (target.tagName === 'INPUT' && target.getAttribute('type') === 'checkbox') {
+//           const checkbox = target as HTMLInputElement;
+//           if (checkbox.checked) {
+//               checkbox.setAttribute('checked', 'true');
+//           } else {
+//               checkbox.removeAttribute('checked');
+//           }
+//           const html = editorRef.current?.innerHTML || "";
+//           setNotes(html);
+//           notesRef.current = html;
+//       }
+//   };
+const handleCheckboxInteraction = (e: React.MouseEvent<HTMLDivElement> | React.ChangeEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    
+    if (target.tagName === 'INPUT' && target.getAttribute('type') === 'checkbox') {
+        const checkbox = target as HTMLInputElement;
+        
+        // Sincroniza o atributo HTML com a propriedade de estado atual do DOM
+        if (checkbox.checked) {
+            checkbox.setAttribute('checked', 'true');
+        } else {
+            checkbox.removeAttribute('checked');
+        }
+        
+        // Atualiza os estados e refs com o HTML modificado
+        if (editorRef.current) {
+            const html = editorRef.current.innerHTML;
+            setNotes(html);
+            notesRef.current = html;
+        }
+    }
+};
 
   const handleFormat = (command: string) => {
       document.execCommand(command, false);
@@ -533,7 +565,8 @@ function FocusSessionInner({ taskId }: { taskId: number }) {
                     ref={editorRef}
                     contentEditable
                     onInput={handleEditorInput}
-                    onChange={handleEditorChange}
+                    onClick={handleCheckboxInteraction}   
+                    onChange={handleCheckboxInteraction}
                     data-placeholder={`Ideias sobre ${viewedTask.title}...`} 
                     className="flex-1 w-full h-full p-6 outline-none text-gray-700 text-base leading-relaxed font-normal overflow-y-auto empty:before:content-[attr(data-placeholder)] empty:before:text-gray-300 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_b]:font-bold [&_strong]:font-bold" 
                     spellCheck={false} 
