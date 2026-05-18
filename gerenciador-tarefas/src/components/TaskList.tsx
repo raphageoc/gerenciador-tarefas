@@ -156,6 +156,7 @@ export function TaskList() {
         </div>
 
         <div className="flex gap-2 w-full md:w-auto">
+            {!isReadOnly && (
             <button 
                 onClick={() => setIsDataModalOpen(true)}
                 className="p-2.5 bg-white border border-gray-200 rounded-xl text-gray-500 hover:text-gray-800 hover:border-gray-300 hover:bg-gray-50 transition-colors shadow-sm"
@@ -163,6 +164,7 @@ export function TaskList() {
             >
                 <Database size={20} />
             </button>
+            )}
 
             {/* ESCONDE O BOTÃO DE NOVO PROJETO NO READONLY */}
             {!isReadOnly && (

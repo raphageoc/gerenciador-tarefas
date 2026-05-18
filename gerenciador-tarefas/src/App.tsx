@@ -1,5 +1,5 @@
 // src/App.tsx
-import { useState, useEffect, createContext, useContext } from 'react';
+import { useState, useEffect, createContext, useContext, useCallback } from 'react';
 import { HashRouter, Routes, Route, Link, useLocation } from 'react-router-dom';
 import { TaskList } from './components/TaskList';
 import { FocusSession } from './components/FocusSession';
@@ -8,10 +8,8 @@ import { About } from './components/About';
 import { CloudGate } from './components/CloudGate'; 
 import { DataManagementModal } from './components/DataManagementModal'; 
 import { Brain, LayoutGrid, CheckSquare, Info, LogOut, Cloud, Eye } from 'lucide-react';
+import { db } from './db'; // <-- Precisamos importar o banco para checar se há tarefas rodando
 
-
-
-// 1. CRIAMOS O CONTEXTO GLOBAL DE SOMENTE LEITURA
 export const ReadOnlyContext = createContext(false);
 
 function NavLink({ to, icon: Icon, label }: { to: string, icon: any, label: string }) {
@@ -30,8 +28,6 @@ function NavLink({ to, icon: Icon, label }: { to: string, icon: any, label: stri
 
 function LayoutFrame({ children }: { children: React.ReactNode }) {
   const [isDataModalOpen, setIsDataModalOpen] = useState(false);
-  
-  // 2. LÊ O CONTEXTO PARA MOSTRAR O AVISO NO CABEÇALHO
   const isReadOnly = useContext(ReadOnlyContext);
 
   useEffect(() => {
@@ -61,20 +57,20 @@ function LayoutFrame({ children }: { children: React.ReactNode }) {
         </div>
 
         <div className="flex items-center gap-3">
-          {/* AVISO DE MODO VISUALIZAÇÃO NO HEADER */}
           {isReadOnly && (
             <div className="flex items-center gap-1 bg-orange-100 text-orange-700 px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider border border-orange-200">
               <Eye size={14} /> Somente Leitura
             </div>
           )}
+
           {!isReadOnly && (
-          <button 
-            onClick={() => setIsDataModalOpen(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-xl transition-colors font-medium text-sm border border-blue-100"
-          >
-            <Cloud size={16} />
-            <span className="hidden sm:inline">Backup</span>
-          </button>
+            <button 
+              onClick={() => setIsDataModalOpen(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-xl transition-colors font-medium text-sm border border-blue-100"
+            >
+              <Cloud size={16} />
+              <span className="hidden sm:inline">Backup</span>
+            </button>
           )}
         </div>
       </header>
@@ -90,17 +86,63 @@ function LayoutFrame({ children }: { children: React.ReactNode }) {
 
 function App() {
   const [hasPassedGate, setHasPassedGate] = useState(false);
-  const [isReadOnly, setIsReadOnly] = useState(false); // 3. ESTADO QUE CONTROLA O MODO
-  
-  // 4. FUNÇÃO QUE RECEBE SE DEVE TRAVAR OU NÃO
+  const [isReadOnly, setIsReadOnly] = useState(false);
+
   const handleUnlock = (readOnlyMode: boolean) => {
     setIsReadOnly(readOnlyMode);
     setHasPassedGate(true);
   };
 
+  // ====================================================================
+  // CONTROLE DE INATIVIDADE (AUTO-LOGOUT)
+  // ====================================================================
+  const checkIdleLogout = useCallback(async () => {
+    // 1. Verifica se não está no modo de leitura (pois leitura não precisa deslogar)
+    // 2. E verifica se ele já passou do portão
+    if (isReadOnly || !hasPassedGate) return;
+
+    try {
+      // Conta quantas tarefas estão rodando o cronômetro
+      const activeTasksCount = await db.tasks.where('status').equals('in_progress').count();
+      
+      // Se NENHUMA tarefa estiver rodando, nós expulsamos o usuário por inatividade
+      if (activeTasksCount === 0) {
+        console.log("Inatividade detectada. Sessão encerrada.");
+        setHasPassedGate(false); // Expulsa para a tela do Google Login
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, [isReadOnly, hasPassedGate]);
+
+  useEffect(() => {
+    let idleTimer: ReturnType<typeof setTimeout>;
+    
+    // Tempo limite: 15 Minutos (15 * 60 * 1000 milissegundos)
+    const IDLE_TIMEOUT_MS = 1 * 60 * 1000;
+
+    const resetIdleTimer = () => {
+      clearTimeout(idleTimer);
+      // Agenda a checagem para daqui a 15 minutos
+      idleTimer = setTimeout(checkIdleLogout, IDLE_TIMEOUT_MS);
+    };
+
+    // Fica de olho se o usuário mexe o mouse, clica, digita ou rola a tela
+    const events = ['mousemove', 'keydown', 'mousedown', 'scroll', 'touchstart'];
+    events.forEach(e => window.addEventListener(e, resetIdleTimer));
+    
+    // Inicia a contagem inicial
+    resetIdleTimer();
+
+    return () => {
+      clearTimeout(idleTimer);
+      events.forEach(e => window.removeEventListener(e, resetIdleTimer));
+    };
+  }, [checkIdleLogout]);
+  // ====================================================================
+
   return (
     <HashRouter>
-      {/* 5. ENVOLVEMOS AS ROTAS COM O CONTEXTO */}
       <ReadOnlyContext.Provider value={isReadOnly}>
         {!hasPassedGate ? (
           <CloudGate onUnlock={handleUnlock} />

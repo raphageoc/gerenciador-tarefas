@@ -1,7 +1,7 @@
 // src/components/DataManagementModal.tsx
 import { useState, useRef } from 'react';
 import { db } from '../db';
-import { X, Download, Upload, Trash2, Database, CheckCircle2, Cloud } from 'lucide-react';
+import { X, Download, Upload, Trash2, Database, CheckCircle2, Cloud, LogOut } from 'lucide-react';
 import { useGoogleLogin } from '@react-oauth/google';
 
 interface Props {
@@ -10,16 +10,19 @@ interface Props {
 }
 
 export function DataManagementModal({ isOpen, onClose }: Props) {
-  // 1. TODOS OS HOOKS NO TOPO
   const [isLoading, setIsLoading] = useState(false);
   const [statusMsg, setStatusMsg] = useState('');
-  const [driveAction, setDriveAction] = useState<'backup' | 'restore' | null>(null);
+  
+  // 1. ATUALIZAMOS OS TIPOS DE AÇÃO PARA IDENTIFICAR A ESCOLHA DO USUÁRIO
+  const [driveAction, setDriveAction] = useState<'backup_only' | 'backup_exit' | 'restore' | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // ESTE É UM HOOK, ENTÃO VAI ANTES DO RETURN
   const handleDriveLogin = useGoogleLogin({
     onSuccess: (tokenResponse) => {
-      if (driveAction === 'backup') executeDriveBackup(tokenResponse.access_token);
+      // 2. REPASSA A INTENÇÃO DO USUÁRIO PARA A FUNÇÃO
+      if (driveAction === 'backup_only' || driveAction === 'backup_exit') {
+         executeDriveBackup(tokenResponse.access_token, driveAction === 'backup_exit');
+      }
       if (driveAction === 'restore') executeDriveRestore(tokenResponse.access_token);
     },
     onError: () => {
@@ -29,12 +32,8 @@ export function DataManagementModal({ isOpen, onClose }: Props) {
     scope: 'https://www.googleapis.com/auth/drive.file',
   });
 
-  // 2. SÓ DEPOIS DE DECLARAR OS HOOKS, PODEMOS PARAR A RENDERIZAÇÃO
   if (!isOpen) return null;
 
-  // ============================================================================
-  // FUNÇÃO REUTILIZÁVEL DE RESTAURAÇÃO 
-  // ============================================================================
   const restoreDataToDb = async (data: any) => {
     if (!data.tasks || !data.checkins) {
         throw new Error('Formato de arquivo inválido.');
@@ -69,10 +68,7 @@ export function DataManagementModal({ isOpen, onClose }: Props) {
     });
   };
 
-  // ============================================================================
-  // GOOGLE DRIVE: LÓGICA DE SINCRONIZAÇÃO
-  // ============================================================================
-  const triggerDriveAction = (action: 'backup' | 'restore') => {
+  const triggerDriveAction = (action: 'backup_only' | 'backup_exit' | 'restore') => {
     if (action === 'restore' && !confirm('ATENÇÃO: Restaurar do Drive irá SUBSTITUIR todos os dados atuais. Deseja continuar?')) {
         return;
     }
@@ -82,10 +78,36 @@ export function DataManagementModal({ isOpen, onClose }: Props) {
     handleDriveLogin();
   };
 
-  const executeDriveBackup = async (accessToken: string) => {
-    setStatusMsg('Empacotando e enviando para o Drive...');
+  // 3. FUNÇÃO AGORA RECEBE UM BOOLEANO: DEVE LIBERAR A TRAVA?
+  const executeDriveBackup = async (accessToken: string, shouldReleaseLock: boolean) => {
+    setStatusMsg('Verificando permissões de segurança...');
     try {
-      // 1. SALVA O BACKUP DOS DADOS
+      // DUPLO CHEQUE: Eu ainda sou o dono da trava?
+      const lockSearchRes = await fetch("https://www.googleapis.com/drive/v3/files?q=name='flowmanager_lock.json' and trashed=false", {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      const lockSearchData = await lockSearchRes.json();
+      const currentLockFileId = lockSearchData.files?.[0]?.id;
+
+      let lockFileIdToUpdate = currentLockFileId;
+
+      if (currentLockFileId) {
+        const lockFileRes = await fetch(`https://www.googleapis.com/drive/v3/files/${currentLockFileId}?alt=media`, {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        });
+        const currentLock = await lockFileRes.json();
+        const myDeviceId = localStorage.getItem('flow_device_id');
+
+        if (currentLock.isLocked && currentLock.deviceId !== myDeviceId) {
+           setStatusMsg('ERRO: Outro dispositivo assumiu o controle. Operação cancelada.');
+           setIsLoading(false);
+           setDriveAction(null);
+           return; 
+        }
+      }
+
+      setStatusMsg('Empacotando e enviando para o Drive...');
+
       const tasks = await db.tasks.toArray();
       const checkins = await db.checkins.toArray();
       const data = { version: 1, timestamp: new Date().toISOString(), tasks, checkins };
@@ -106,60 +128,53 @@ export function DataManagementModal({ isOpen, onClose }: Props) {
         ? `https://www.googleapis.com/upload/drive/v3/files/${existingFileId}?uploadType=multipart`
         : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
       
-      const method = existingFileId ? 'PATCH' : 'POST';
-
       const uploadRes = await fetch(url, {
-        method: method,
+        method: existingFileId ? 'PATCH' : 'POST',
         headers: { Authorization: `Bearer ${accessToken}` },
         body: form,
       });
 
       if (!uploadRes.ok) throw new Error('Falha no upload do backup');
 
-      // =========================================================
-      // 2. NOVO: LIBERA O LOCK (DESTRAVA O APP PARA OUTRO PC)
-      // =========================================================
-      setStatusMsg('Liberando acesso para outros dispositivos...');
-      const lockSearchRes = await fetch("https://www.googleapis.com/drive/v3/files?q=name='flowmanager_lock.json' and trashed=false", {
-        headers: { Authorization: `Bearer ${accessToken}` }
-      });
-      const lockSearchData = await lockSearchRes.json();
-      const lockFileId = lockSearchData.files?.[0]?.id;
+      // 4. LÓGICA CONDICIONAL DE LIBERAÇÃO DA TRAVA E SAÍDA
+      if (shouldReleaseLock) {
+          setStatusMsg('Liberando trava e desconectando...');
+          
+          if (lockFileIdToUpdate) {
+            const deviceId = localStorage.getItem('flow_device_id') || 'unknown';
+            const unlockData = {
+              deviceId: deviceId,
+              userAgent: navigator.userAgent.substring(0, 40) + '...',
+              isLocked: false, // <-- DESTRAVA
+              lastOpened: new Date().toISOString()
+            };
+            
+            const lockBlob = new Blob([JSON.stringify(unlockData)], { type: 'application/json' });
+            const lockMetadata = { name: 'flowmanager_lock.json', mimeType: 'application/json' };
+            const lockForm = new FormData();
+            lockForm.append('metadata', new Blob([JSON.stringify(lockMetadata)], { type: 'application/json' }));
+            lockForm.append('file', lockBlob);
 
-      if (lockFileId) {
-        // Pega o ID do dispositivo atual
-        const deviceId = localStorage.getItem('flow_device_id') || 'unknown';
-        
-        // Define isLocked como false
-        const unlockData = {
-          deviceId: deviceId,
-          userAgent: navigator.userAgent.substring(0, 40) + '...',
-          isLocked: false, // <--- LIBERADO
-          lastOpened: new Date().toISOString()
-        };
-        
-        const lockBlob = new Blob([JSON.stringify(unlockData)], { type: 'application/json' });
-        const lockMetadata = { name: 'flowmanager_lock.json', mimeType: 'application/json' };
-        
-        const lockForm = new FormData();
-        lockForm.append('metadata', new Blob([JSON.stringify(lockMetadata)], { type: 'application/json' }));
-        lockForm.append('file', lockBlob);
+            await fetch(`https://www.googleapis.com/upload/drive/v3/files/${lockFileIdToUpdate}?uploadType=multipart`, {
+              method: 'PATCH',
+              headers: { Authorization: `Bearer ${accessToken}` },
+              body: lockForm,
+            });
+          }
 
-        await fetch(`https://www.googleapis.com/upload/drive/v3/files/${lockFileId}?uploadType=multipart`, {
-          method: 'PATCH',
-          headers: { Authorization: `Bearer ${accessToken}` },
-          body: lockForm,
-        });
+          // Reinicia a página para voltar para o CloudGate
+          setTimeout(() => {
+            window.location.reload(); 
+          }, 1500);
+
+      } else {
+          // SE NÃO PEDIU PRA SAIR, SÓ AVISA E FECHA O MODAL
+          setStatusMsg('Backup salvo com sucesso! Você continua no controle.');
+          setTimeout(() => {
+            setStatusMsg('');
+            onClose(); 
+          }, 3000);
       }
-      // =========================================================
-
-      setStatusMsg('Backup salvo e app destravado com sucesso!');
-      
-      // Fecha o aplicativo/modal para o usuário saber que já pode sair
-      setTimeout(() => {
-        setStatusMsg('');
-        onClose(); 
-      }, 3000);
 
     } catch (error) {
       console.error(error);
@@ -204,24 +219,14 @@ export function DataManagementModal({ isOpen, onClose }: Props) {
     }
   };
 
-  // ============================================================================
-  // FUNÇÕES LOCAIS (PC)
-  // ============================================================================
   const handleExport = async () => {
     try {
       const tasks = await db.tasks.toArray();
       const checkins = await db.checkins.toArray();
-      
-      const data = {
-        version: 1,
-        timestamp: new Date().toISOString(),
-        tasks,
-        checkins
-      };
+      const data = { version: 1, timestamp: new Date().toISOString(), tasks, checkins };
 
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
-      
       const a = document.createElement('a');
       a.href = url;
       a.download = `flow-manager-backup-${new Date().toISOString().split('T')[0]}.json`;
@@ -233,14 +238,11 @@ export function DataManagementModal({ isOpen, onClose }: Props) {
       setStatusMsg('Backup local realizado com sucesso!');
       setTimeout(() => setStatusMsg(''), 3000);
     } catch (error) {
-      console.error(error);
       setStatusMsg('Erro ao exportar dados.');
     }
   };
 
-  const handleImportClick = () => {
-    fileInputRef.current?.click();
-  };
+  const handleImportClick = () => fileInputRef.current?.click();
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -259,13 +261,10 @@ export function DataManagementModal({ isOpen, onClose }: Props) {
       try {
         const json = event.target?.result as string;
         const data = JSON.parse(json);
-
         await restoreDataToDb(data);
-
         setStatusMsg('Dados restaurados com sucesso!');
         setTimeout(() => window.location.reload(), 1500);
       } catch (error) {
-        console.error(error);
         setStatusMsg('Erro ao importar: Arquivo inválido.');
         setIsLoading(false);
       }
@@ -286,7 +285,6 @@ export function DataManagementModal({ isOpen, onClose }: Props) {
     <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh]">
         
-        {/* Header */}
         <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50 flex-shrink-0">
           <h3 className="font-bold text-gray-800 flex items-center gap-2">
              <Database size={20} className="text-blue-600"/> Gerenciar Dados
@@ -296,46 +294,56 @@ export function DataManagementModal({ isOpen, onClose }: Props) {
           </button>
         </div>
 
-        {/* Body com Scroll */}
         <div className="p-6 space-y-6 overflow-y-auto">
             
             {statusMsg && (
-                <div className={`p-3 rounded-lg text-sm font-medium flex items-center gap-2 ${statusMsg.includes('Erro') ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>
+                <div className={`p-3 rounded-lg text-sm font-medium flex items-center gap-2 ${statusMsg.includes('ERRO') || statusMsg.includes('Erro') ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>
                     <CheckCircle2 size={16} className="shrink-0" /> 
                     <span>{statusMsg}</span>
                 </div>
             )}
 
-            {/* SEÇÃO NUVEM (Google Drive) */}
+            {/* 5. INTERFACE DO DRIVE COM 3 BOTÕES */}
             <div className="space-y-3 bg-blue-50/50 p-4 rounded-xl border border-blue-100">
                 <div>
                     <h4 className="text-sm font-bold text-blue-900 flex items-center gap-2">
                         <Cloud size={16} /> Google Drive
                     </h4>
-                    <p className="text-xs text-blue-600/80 mt-1">Sincronize seus dados de forma segura na sua conta do Google.</p>
+                    <p className="text-xs text-blue-600/80 mt-1">Sincronize seus dados de forma segura na sua conta.</p>
                 </div>
                 
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-3 gap-2">
                     <button 
-                        onClick={() => triggerDriveAction('backup')}
+                        onClick={() => triggerDriveAction('backup_only')}
                         disabled={isLoading}
-                        className="flex flex-col items-center gap-1 p-3 bg-white border border-blue-200 hover:border-blue-400 hover:bg-blue-50 text-blue-700 rounded-lg transition-all shadow-sm font-medium disabled:opacity-50"
+                        className="flex flex-col items-center justify-center gap-1 p-2 bg-white border border-blue-200 hover:border-blue-400 hover:bg-blue-50 text-blue-700 rounded-lg transition-all shadow-sm font-medium disabled:opacity-50"
+                        title="Salva na nuvem e permite que você continue editando"
                     >
-                        <Upload size={18} /> <span className="text-xs">Salvar Nuvem</span>
+                        <Upload size={16} /> <span className="text-[10px] text-center leading-tight">Apenas<br/>Salvar</span>
                     </button>
+                    
+                    <button 
+                        onClick={() => triggerDriveAction('backup_exit')}
+                        disabled={isLoading}
+                        className="flex flex-col items-center justify-center gap-1 p-2 bg-blue-600 hover:bg-blue-700 border border-blue-700 text-white rounded-lg transition-all shadow-sm font-bold disabled:opacity-50"
+                        title="Salva na nuvem, destrava o app e volta pra tela inicial"
+                    >
+                        <LogOut size={16} /> <span className="text-[10px] text-center leading-tight">Salvar e<br/>Sair</span>
+                    </button>
+
                     <button 
                         onClick={() => triggerDriveAction('restore')}
                         disabled={isLoading}
-                        className="flex flex-col items-center gap-1 p-3 bg-white border border-blue-200 hover:border-blue-400 hover:bg-blue-50 text-blue-700 rounded-lg transition-all shadow-sm font-medium disabled:opacity-50"
+                        className="flex flex-col items-center justify-center gap-1 p-2 bg-white border border-blue-200 hover:border-blue-400 hover:bg-blue-50 text-blue-700 rounded-lg transition-all shadow-sm font-medium disabled:opacity-50"
+                        title="Baixa o backup da nuvem e substitui os dados daqui"
                     >
-                        <Download size={18} /> <span className="text-xs">Baixar Nuvem</span>
+                        <Download size={16} /> <span className="text-[10px] text-center leading-tight">Baixar<br/>Nuvem</span>
                     </button>
                 </div>
             </div>
 
             <hr className="border-gray-100" />
 
-            {/* Exportar Local */}
             <div className="space-y-2">
                 <h4 className="text-sm font-bold text-gray-700">Backup Manual (PC)</h4>
                 <p className="text-xs text-gray-500">Salve seus projetos em um arquivo JSON no computador.</p>
@@ -348,7 +356,6 @@ export function DataManagementModal({ isOpen, onClose }: Props) {
                 </button>
             </div>
 
-            {/* Importar Local */}
             <div className="space-y-2">
                 <h4 className="text-sm font-bold text-gray-700">Restaurar Manual (PC)</h4>
                 <p className="text-xs text-gray-500">Recupere de um arquivo local. <span className="text-red-500 font-bold">Substitui dados atuais.</span></p>
@@ -370,7 +377,6 @@ export function DataManagementModal({ isOpen, onClose }: Props) {
 
             <hr className="border-gray-100" />
 
-            {/* Resetar */}
             <div className="space-y-2 pt-2">
                 <button 
                     onClick={handleReset}
@@ -378,6 +384,20 @@ export function DataManagementModal({ isOpen, onClose }: Props) {
                     className="w-full flex items-center justify-center gap-2 p-3 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl transition-colors font-bold text-xs uppercase tracking-widest disabled:opacity-50"
                 >
                     <Trash2 size={16} /> Apagar tudo e reiniciar
+                </button>
+            </div>
+
+            <hr className="border-gray-100 mt-6" />
+            
+            <div className="pt-2 pb-4">
+                <button 
+                    onClick={() => {
+                        window.close();
+                        alert("Dados salvos! Você já pode fechar a aba do navegador no 'X' lá em cima com segurança.");
+                    }}
+                    className="w-full flex items-center justify-center gap-2 p-4 bg-gray-800 hover:bg-gray-900 text-white rounded-xl transition-colors font-bold text-sm shadow-md"
+                >
+                    Já fechei meu aplicativo, quero fechar a aba
                 </button>
             </div>
 
