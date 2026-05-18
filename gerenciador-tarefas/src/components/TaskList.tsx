@@ -1,5 +1,5 @@
 // src/components/TaskList.tsx
-import { useState, useMemo, useRef, useEffect } from 'react';
+import { useState, useMemo, useRef, useEffect, useContext } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, type Task } from '../db';
 import { 
@@ -9,8 +9,11 @@ import {
 import { TaskItem } from './TaskItem';
 import { DataManagementModal } from './DataManagementModal';
 import { CreateProjectModal } from './CreateProjectModal';
+import { ReadOnlyContext } from '../App';
 
 export function TaskList() {
+  const isReadOnly = useContext(ReadOnlyContext); // <-- LENDO O MODO LEITURA AQUI
+
   const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false);
   const [isDataModalOpen, setIsDataModalOpen] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -85,7 +88,6 @@ export function TaskList() {
     }
 
     return tasks.sort((a, b) => {
-        // Usamos 'as any' aqui caso o TS ainda não veja o campo order
         const orderA = (a as any).order ?? 9999999999; 
         const orderB = (b as any).order ?? 9999999999;
         if (orderA !== orderB) return orderA - orderB;
@@ -93,30 +95,35 @@ export function TaskList() {
     });
   }, [allTasks, selectedProjectId]);
 
-  // --- FUNÇÃO PARA MOVER AO TOPO AO ABRIR ---
   const handleOpenProject = async (taskId: number) => {
+      if (isReadOnly) {
+          // Se for somente leitura, apenas seleciona sem alterar o "order" no banco
+          setSelectedProjectId(String(taskId));
+          return;
+      }
+      
       const rootTasks = allTasks?.filter(t => !t.parentId) || [];
-      // Cast 'as any' para ler o order sem erro
       const currentMinOrder = rootTasks.reduce((min, t) => Math.min(min, (t as any).order ?? 0), 0);
       
-      // Cast 'as any' para permitir a atualização do campo order
       await db.tasks.update(taskId, { order: currentMinOrder - 1 } as any);
-
       setSelectedProjectId(String(taskId));
   };
 
-  // --- DRAG & DROP ---
+  // --- DRAG & DROP (Com Trava de Leitura) ---
   const handleDragStart = (e: React.DragEvent, id: number) => {
+      if (isReadOnly) return;
       setDraggedTaskId(id);
       e.dataTransfer.effectAllowed = "move";
   };
 
   const handleDragOver = (e: React.DragEvent) => {
+      if (isReadOnly) return;
       e.preventDefault(); 
       e.dataTransfer.dropEffect = "move";
   };
 
   const handleDrop = async (e: React.DragEvent, targetId: number) => {
+      if (isReadOnly) return;
       e.preventDefault();
       if (draggedTaskId === null || draggedTaskId === targetId) return;
 
@@ -129,7 +136,6 @@ export function TaskList() {
       const [movedItem] = currentList.splice(oldIndex, 1);
       currentList.splice(newIndex, 0, movedItem);
 
-      // Cast 'as any' para evitar erro de tipo no bulkPut
       const updates = currentList.map((task, index) => ({
           ...task,
           order: index 
@@ -158,9 +164,12 @@ export function TaskList() {
                 <Database size={20} />
             </button>
 
-            <button onClick={() => setIsCreateModalOpen(true)} className="flex-1 md:flex-none bg-gray-900 hover:bg-black text-white px-4 py-2 rounded-xl font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-gray-200">
-                <Plus size={18} /> <span className="hidden sm:inline">Novo Projeto</span><span className="sm:hidden">Novo</span>
-            </button>
+            {/* ESCONDE O BOTÃO DE NOVO PROJETO NO READONLY */}
+            {!isReadOnly && (
+                <button onClick={() => setIsCreateModalOpen(true)} className="flex-1 md:flex-none bg-gray-900 hover:bg-black text-white px-4 py-2 rounded-xl font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-gray-200">
+                    <Plus size={18} /> <span className="hidden sm:inline">Novo Projeto</span><span className="sm:hidden">Novo</span>
+                </button>
+            )}
             
             <div className="relative flex-1 md:flex-none" ref={dropdownRef}>
                 <button 
@@ -208,18 +217,21 @@ export function TaskList() {
                 return (
                     <div 
                         key={task.id} 
-                        draggable={selectedProjectId === 'all'}
-                        onDragStart={(e) => task.id && handleDragStart(e, task.id)}
+                        draggable={!isReadOnly && selectedProjectId === 'all'} // <-- TRAVA O ARRASTO GERAL
+                        onDragStart={(e) => !isReadOnly && task.id && handleDragStart(e, task.id)}
                         onDragOver={handleDragOver}
-                        onDrop={(e) => task.id && handleDrop(e, task.id)}
+                        onDrop={(e) => !isReadOnly && task.id && handleDrop(e, task.id)}
                         className={`bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden transition-all duration-200 ${isDragging ? 'opacity-40 scale-[0.98] ring-2 ring-blue-400 border-blue-400 cursor-grabbing' : 'hover:shadow-md'}`}
                     >
                         {selectedProjectId === 'all' && (
                             <div className="p-4 border-b border-gray-100 bg-gray-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3 group">
                                 <div className="flex items-center gap-3">
-                                    <div className="cursor-grab text-gray-300 hover:text-gray-500 active:cursor-grabbing">
-                                        <GripVertical size={20} />
-                                    </div>
+                                    {/* SÓ MOSTRA O ÍCONE DE ARRASTAR SE NÃO FOR READONLY */}
+                                    {!isReadOnly && (
+                                        <div className="cursor-grab text-gray-300 hover:text-gray-500 active:cursor-grabbing">
+                                            <GripVertical size={20} />
+                                        </div>
+                                    )}
                                     
                                     <div>
                                         <h3 className="font-bold text-gray-800 text-lg flex items-center gap-2 cursor-pointer hover:text-blue-600 transition-colors" onClick={() => task.id && handleOpenProject(task.id)}>
@@ -256,10 +268,13 @@ export function TaskList() {
         onClose={() => setIsDataModalOpen(false)} 
       />
 
-      <CreateProjectModal 
-        isOpen={isCreateModalOpen}
-        onClose={() => setIsCreateModalOpen(false)}
-      />
+      {/* SÓ RENDERIZA O MODAL DE CRIAÇÃO SE NÃO FOR READONLY */}
+      {!isReadOnly && (
+          <CreateProjectModal 
+            isOpen={isCreateModalOpen}
+            onClose={() => setIsCreateModalOpen(false)}
+          />
+      )}
     </div>
   );
 }

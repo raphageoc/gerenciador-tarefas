@@ -1,5 +1,5 @@
 // src/components/FocusSession.tsx
-import { useEffect, useState, useRef, useMemo } from 'react';
+import { useEffect, useState, useRef, useMemo, useContext } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, type Task } from '../db';
@@ -13,6 +13,9 @@ import { BreathingModal } from './BreathingModal';
 import { PreSessionModal } from './PreSessionModal';
 import { TaskItem } from './TaskItem';
 import brownNoiseUrl from '../assets/pinknoise.mp3'; 
+import { ReadOnlyContext } from '../App';
+
+
 
 // --- ÁUDIO GLOBAL ---
 const noiseAudio = new Audio(brownNoiseUrl);
@@ -32,7 +35,7 @@ export function FocusSession() {
 function FocusSessionInner({ taskId }: { taskId: number }) {
   const navigate = useNavigate();
   const ACTIVE_TASK_ID = taskId;
-  
+  const isReadOnly = useContext(ReadOnlyContext); // <--- Adicione aqui junto com os outros hooks
   const [viewedTaskId, setViewedTaskId] = useState(ACTIVE_TASK_ID);
   
   const viewedTaskIdRef = useRef(ACTIVE_TASK_ID);
@@ -440,8 +443,9 @@ const handleCheckboxInteraction = (e: React.MouseEvent<HTMLDivElement> | React.C
                     <button onClick={() => setSessionTime(sessionDuration / 60)} className="text-gray-300 hover:text-blue-600 p-1" title="Reiniciar"><RotateCcw size={12} /></button>
                 </div>
             </div>
-
+            {!isReadOnly && (
             <div className="flex-1 flex flex-col items-end justify-center gap-4">
+                
                 <div className="flex items-center gap-3">
                     <button onClick={handlePlayClick} className={`h-12 px-6 rounded-xl flex items-center justify-center gap-2 transition-all shadow-sm font-bold text-sm ${isSessionActive ? 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200 border border-yellow-200' : 'bg-blue-600 text-white hover:bg-blue-700 shadow-blue-200'}`}>{isSessionActive ? <><Pause size={18} fill="currentColor" /> PAUSAR</> : <><Play size={18} fill="currentColor" /> INICIAR</>}</button>
                     <button onClick={attemptExit} className="w-12 h-12 rounded-xl bg-white border-2 border-red-50 text-red-400 hover:border-red-500 hover:bg-red-500 hover:text-white transition-all flex items-center justify-center" title="Parar e Sair"><StopCircle size={20} /></button>
@@ -450,7 +454,9 @@ const handleCheckboxInteraction = (e: React.MouseEvent<HTMLDivElement> | React.C
                     <button onClick={toggleNoise} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${isNoisePlaying ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>{isNoisePlaying ? <Volume2 size={14} /> : <VolumeX size={14} />} <span className="hidden lg:inline">Foco Sonoro</span></button>
                     <button onClick={() => { if(isSessionActive) handlePlayClick(); setIsBreathing(true); }} className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"><Wind size={14} /> <span className="hidden lg:inline">Respirar</span></button>
                 </div>
+                
             </div>
+            )}
         </div>
 
         {/* BARRA DE AVISO */}
@@ -499,7 +505,7 @@ const handleCheckboxInteraction = (e: React.MouseEvent<HTMLDivElement> | React.C
                                 <div 
                                     key={sub.id} 
                                     className={`scale-[0.98] origin-left transition-all ${isDragging ? 'opacity-40 ring-2 ring-blue-400 rounded-xl' : ''}`}
-                                    draggable
+                                    draggable={!isReadOnly}
                                     onDragStart={(e) => sub.id && handleDragStart(e, sub.id)}
                                     onDragOver={handleDragOver}
                                     onDrop={(e) => sub.id && handleDrop(e, sub.id)}
@@ -509,10 +515,12 @@ const handleCheckboxInteraction = (e: React.MouseEvent<HTMLDivElement> | React.C
                             );
                         })}
                         
-                        <div className="flex items-center gap-2 mt-2 px-2 py-1 bg-gray-50 rounded-lg focus-within:ring-2 focus-within:ring-blue-100 flex-shrink-0">
-                            <Plus className="text-gray-400" size={14} />
-                            <input type="text" placeholder="Adicionar passo..." className="w-full bg-transparent text-sm outline-none text-gray-600 placeholder-gray-400" value={newSubtaskTitle} onChange={(e) => setNewSubtaskTitle(e.target.value)} onKeyDown={handleAddSubtask} />
-                        </div>
+                        {!isReadOnly && (
+    <div className="flex items-center gap-2 mt-2 px-2 py-1 bg-gray-50 rounded-lg focus-within:ring-2 focus-within:ring-blue-100 flex-shrink-0">
+        <Plus className="text-gray-400" size={14} />
+        <input type="text" placeholder="Adicionar passo..." className="w-full bg-transparent text-sm outline-none text-gray-600 placeholder-gray-400" value={newSubtaskTitle} onChange={(e) => setNewSubtaskTitle(e.target.value)} onKeyDown={handleAddSubtask} />
+    </div>
+)}
                     </div>
                 </div>
 
@@ -530,7 +538,7 @@ const handleCheckboxInteraction = (e: React.MouseEvent<HTMLDivElement> | React.C
                             {isViewingOther ? <Eye size={12} className="text-blue-400"/> : null}
                             Notas de: <span className="text-gray-700">{viewedTask.title}</span>
                         </span>
-                        
+                        {!isReadOnly && (
                         <div className="flex items-center gap-1 border-l border-gray-200 pl-4">
                             <button 
                                 onClick={() => handleFormat('bold')} 
@@ -554,6 +562,7 @@ const handleCheckboxInteraction = (e: React.MouseEvent<HTMLDivElement> | React.C
                                 <CheckSquare size={14} />
                             </button>
                         </div>
+                        )}
                     </div>
 
                     <span className="text-[10px] text-gray-400">
@@ -563,7 +572,7 @@ const handleCheckboxInteraction = (e: React.MouseEvent<HTMLDivElement> | React.C
 
                 <div 
                     ref={editorRef}
-                    contentEditable
+                    contentEditable={!isReadOnly}
                     onInput={handleEditorInput}
                     onClick={handleCheckboxInteraction}   
                     onChange={handleCheckboxInteraction}

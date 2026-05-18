@@ -1,8 +1,9 @@
 // src/components/TaskResources.tsx
 // src/components/TaskResources.tsx
-import { useRef } from 'react';
+import { useRef, useContext } from 'react';
 import { Folder, Link as LinkIcon, FileText, HardDrive, Trash2, Copy, ExternalLink } from 'lucide-react';
 import { db, type Task, type TaskResource } from '../db';
+import { ReadOnlyContext } from '../App'; // <-- IMPORTADO O CONTEXTO DE TRAVA
 
 interface Props {
   task: Task;
@@ -10,20 +11,22 @@ interface Props {
 
 export function TaskResources({ task }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const isReadOnly = useContext(ReadOnlyContext); // <-- LENDO O MODO LEITURA AQUI
 
   const addResource = async (resource: TaskResource) => {
-    if (!task.id) return;
+    if (!task.id || isReadOnly) return; // <-- TRAVA DE EDIÇÃO AQUI
     const newResources = [...(task.resources || []), resource];
     await db.tasks.update(task.id, { resources: newResources });
   };
 
   const removeResource = async (resId: string) => {
-    if (!task.id) return;
+    if (!task.id || isReadOnly) return; // <-- TRAVA DE EDIÇÃO AQUI
     const newResources = task.resources.filter(r => r.id !== resId);
     await db.tasks.update(task.id, { resources: newResources });
   };
 
   const handleAddLink = async () => {
+    if (isReadOnly) return;
     const url = prompt("Cole a URL do link (ex: google.com):");
     if (!url) return;
     
@@ -48,6 +51,7 @@ export function TaskResources({ task }: Props) {
   };
 
   const handleAddFolder = async () => {
+    if (isReadOnly) return;
     const path = prompt("Cole o caminho COMPLETO da pasta aqui:\n(Vá na pasta, clique na barra de endereço, copie e cole aqui)");
     
     if (path) {
@@ -66,6 +70,7 @@ export function TaskResources({ task }: Props) {
   };
 
   const handleAddFile = async () => {
+    if (isReadOnly) return;
     const path = prompt("Cole o caminho COMPLETO do arquivo:\n(Shift + Clique Direito no arquivo -> 'Copiar como caminho')");
     
     if (path) {
@@ -129,25 +134,30 @@ export function TaskResources({ task }: Props) {
                         </p>
                     </div>
                 </div>
-                <button onClick={() => removeResource(res.id)} className="p-2 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Trash2 size={16} />
-                </button>
+                {/* SÓ MOSTRA O BOTÃO DE DELETAR SE NÃO FOR READONLY */}
+                {!isReadOnly && (
+                    <button onClick={() => removeResource(res.id)} className="p-2 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Trash2 size={16} />
+                    </button>
+                )}
             </div>
         ))}
       </div>
 
-      {/* Footer Fixo (Botões) */}
-      <div className="p-3 bg-gray-50 border-t border-gray-100 grid grid-cols-3 gap-2 shrink-0 z-10">
-        <button onClick={handleAddLink} className="flex flex-col items-center justify-center p-2 rounded-lg bg-white border border-gray-200 hover:border-blue-300 hover:text-blue-600 transition-colors gap-1 text-gray-600 shadow-sm">
-            <LinkIcon size={16} /> <span className="text-[10px] font-bold">Link Web</span>
-        </button>
-        <button onClick={handleAddFolder} className="flex flex-col items-center justify-center p-2 rounded-lg bg-white border border-gray-200 hover:border-yellow-300 hover:text-yellow-600 transition-colors gap-1 text-gray-600 shadow-sm">
-            <Folder size={16} /> <span className="text-[10px] font-bold">Pasta</span>
-        </button>
-        <button onClick={handleAddFile} className="flex flex-col items-center justify-center p-2 rounded-lg bg-white border border-gray-200 hover:border-gray-400 hover:text-gray-800 transition-colors gap-1 text-gray-600 shadow-sm">
-            <HardDrive size={16} /> <span className="text-[10px] font-bold">Arquivo</span>
-        </button>
-      </div>
+      {/* SÓ MOSTRA O FOOTER DE ADICIONAR SE NÃO FOR READONLY */}
+      {!isReadOnly && (
+          <div className="p-3 bg-gray-50 border-t border-gray-100 grid grid-cols-3 gap-2 shrink-0 z-10">
+            <button onClick={handleAddLink} className="flex flex-col items-center justify-center p-2 rounded-lg bg-white border border-gray-200 hover:border-blue-300 hover:text-blue-600 transition-colors gap-1 text-gray-600 shadow-sm">
+                <LinkIcon size={16} /> <span className="text-[10px] font-bold">Link Web</span>
+            </button>
+            <button onClick={handleAddFolder} className="flex flex-col items-center justify-center p-2 rounded-lg bg-white border border-gray-200 hover:border-yellow-300 hover:text-yellow-600 transition-colors gap-1 text-gray-600 shadow-sm">
+                <Folder size={16} /> <span className="text-[10px] font-bold">Pasta</span>
+            </button>
+            <button onClick={handleAddFile} className="flex flex-col items-center justify-center p-2 rounded-lg bg-white border border-gray-200 hover:border-gray-400 hover:text-gray-800 transition-colors gap-1 text-gray-600 shadow-sm">
+                <HardDrive size={16} /> <span className="text-[10px] font-bold">Arquivo</span>
+            </button>
+          </div>
+      )}
 
       <input type="file" ref={fileInputRef} className="hidden" />
     </div>

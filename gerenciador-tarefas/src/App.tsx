@@ -1,13 +1,18 @@
 // src/App.tsx
-import { useState, useEffect } from 'react';
+import { useState, useEffect, createContext, useContext } from 'react';
 import { HashRouter, Routes, Route, Link, useLocation } from 'react-router-dom';
 import { TaskList } from './components/TaskList';
 import { FocusSession } from './components/FocusSession';
 import { Dashboard } from './components/Dashboard';
 import { About } from './components/About';
-import { CloudGate } from './components/CloudGate'; // <-- IMPORTADO
-import { DataManagementModal } from './components/DataManagementModal'; // <-- IMPORTADO
-import { Brain, LayoutGrid, CheckSquare, Info, LogOut, Cloud } from 'lucide-react';
+import { CloudGate } from './components/CloudGate'; 
+import { DataManagementModal } from './components/DataManagementModal'; 
+import { Brain, LayoutGrid, CheckSquare, Info, LogOut, Cloud, Eye } from 'lucide-react';
+
+
+
+// 1. CRIAMOS O CONTEXTO GLOBAL DE SOMENTE LEITURA
+export const ReadOnlyContext = createContext(false);
 
 function NavLink({ to, icon: Icon, label }: { to: string, icon: any, label: string }) {
   const location = useLocation();
@@ -25,8 +30,10 @@ function NavLink({ to, icon: Icon, label }: { to: string, icon: any, label: stri
 
 function LayoutFrame({ children }: { children: React.ReactNode }) {
   const [isDataModalOpen, setIsDataModalOpen] = useState(false);
+  
+  // 2. LÊ O CONTEXTO PARA MOSTRAR O AVISO NO CABEÇALHO
+  const isReadOnly = useContext(ReadOnlyContext);
 
-  // Trava para avisar o usuário ao tentar fechar a aba nativamente no navegador
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       e.preventDefault();
@@ -38,68 +45,76 @@ function LayoutFrame({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen flex flex-col bg-[#FDFDFD] relative font-sans text-gray-800">
-      
-      {/* Header Fixo no Topo */}
       <header className="bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between sticky top-0 z-40 backdrop-blur-sm bg-white/80">
-        <div className="flex items-center gap-8">
+        <div className="flex items-center gap-4 md:gap-8">
             <Link to="/" className="flex items-center gap-3 hover:opacity-80 transition group">
-            <div className="bg-black text-white p-2 rounded-lg group-hover:scale-105 transition-transform duration-300">
-                <Brain size={20} />
-            </div>
-            <h1 className="text-lg font-semibold tracking-tight hidden md:block">Flow Manager</h1>
+                <div className="bg-black text-white p-2 rounded-lg group-hover:scale-105 transition-transform duration-300">
+                    <Brain size={20} />
+                </div>
+                <h1 className="text-lg font-semibold tracking-tight hidden md:block">Flow Manager</h1>
             </Link>
-            <nav className="flex items-center gap-2">
+            <nav className="flex items-center gap-2 hidden sm:flex">
                 <NavLink to="/" icon={CheckSquare} label="Projetos" />
                 <NavLink to="/dashboard" icon={LayoutGrid} label="Dashboard" />
                 <NavLink to="/about" icon={Info} label="Sobre" />
             </nav>
         </div>
 
-        {/* NOVO: Botão de Sair / Salvar */}
-        <div>
+        <div className="flex items-center gap-3">
+          {/* AVISO DE MODO VISUALIZAÇÃO NO HEADER */}
+          {isReadOnly && (
+            <div className="flex items-center gap-1 bg-orange-100 text-orange-700 px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider border border-orange-200">
+              <Eye size={14} /> Somente Leitura
+            </div>
+          )}
+          {!isReadOnly && (
           <button 
             onClick={() => setIsDataModalOpen(true)}
             className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-xl transition-colors font-medium text-sm border border-blue-100"
           >
             <Cloud size={16} />
-            <span className="hidden sm:inline">Salvar</span>
-            <LogOut size={16} className="ml-1 opacity-70" />
+            <span className="hidden sm:inline">Backup</span>
           </button>
+          )}
         </div>
       </header>
       
-      {/* Área Principal */}
       <main className="flex-1 w-full max-w-[1600px] mx-auto p-4 md:p-8">
         {children}
       </main>
 
-      {/* MODAL GLOBAL DE DADOS */}
-      <DataManagementModal 
-        isOpen={isDataModalOpen} 
-        onClose={() => setIsDataModalOpen(false)} 
-      />
+      <DataManagementModal isOpen={isDataModalOpen} onClose={() => setIsDataModalOpen(false)} />
     </div>
   );
 }
 
 function App() {
   const [hasPassedGate, setHasPassedGate] = useState(false);
+  const [isReadOnly, setIsReadOnly] = useState(false); // 3. ESTADO QUE CONTROLA O MODO
+  
+  // 4. FUNÇÃO QUE RECEBE SE DEVE TRAVAR OU NÃO
+  const handleUnlock = (readOnlyMode: boolean) => {
+    setIsReadOnly(readOnlyMode);
+    setHasPassedGate(true);
+  };
 
   return (
-    // HashRouter é usado aqui para garantir compatibilidade com GitHub Pages
     <HashRouter>
-      {!hasPassedGate ? (
-        <CloudGate onUnlock={() => setHasPassedGate(true)} />
-      ) : (
-        <LayoutFrame>
-          <Routes>
-            <Route path="/" element={<TaskList />} />
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/about" element={<About />} />
-            <Route path="/focus/:taskId" element={<FocusSession />} />
-          </Routes>
-        </LayoutFrame>
-      )}
+      {/* 5. ENVOLVEMOS AS ROTAS COM O CONTEXTO */}
+      <ReadOnlyContext.Provider value={isReadOnly}>
+        {!hasPassedGate ? (
+          <CloudGate onUnlock={handleUnlock} />
+        ) : (
+          <LayoutFrame>
+            <Routes>
+              <Route path="/" element={<TaskList />} />
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/about" element={<About />} />
+              <Route path="/focus/:taskId" element={<FocusSession />} />
+            </Routes>
+          </LayoutFrame>
+        )}
+      </ReadOnlyContext.Provider>
     </HashRouter>
   );
 }
