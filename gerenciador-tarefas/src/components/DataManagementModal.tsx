@@ -47,6 +47,7 @@ export function DataManagementModal({ isOpen, onClose }: Props) {
          ...t,
          createdAt: new Date(t.createdAt),
          deadline: t.deadline ? new Date(t.deadline) : undefined,
+         completedAt: t.completedAt ? new Date(t.completedAt) : undefined,
          sessions: t.sessions?.map((s: any) => ({
              ...s,
              start: new Date(s.start),
@@ -164,6 +165,7 @@ export function DataManagementModal({ isOpen, onClose }: Props) {
 
           // Reinicia a página para voltar para o CloudGate
           setTimeout(() => {
+            (window as any).skipUnloadCheck = true; // <-- DESLIGA O AVISO DE SAÍDA
             window.location.reload(); 
           }, 1500);
 
@@ -211,7 +213,10 @@ export function DataManagementModal({ isOpen, onClose }: Props) {
       await restoreDataToDb(data);
 
       setStatusMsg('Dados restaurados com sucesso!');
-      setTimeout(() => window.location.reload(), 1500);
+      setTimeout(() => {
+        (window as any).skipUnloadCheck = true; // <-- DESLIGA O AVISO DE SAÍDA
+        window.location.reload();
+      }, 1500);
     } catch (error) {
       console.error(error);
       setStatusMsg('Erro ao restaurar do Drive. Arquivo inválido.');
@@ -263,7 +268,10 @@ export function DataManagementModal({ isOpen, onClose }: Props) {
         const data = JSON.parse(json);
         await restoreDataToDb(data);
         setStatusMsg('Dados restaurados com sucesso!');
-        setTimeout(() => window.location.reload(), 1500);
+        setTimeout(() => {
+            (window as any).skipUnloadCheck = true; // <-- DESLIGA O AVISO DE SAÍDA
+            window.location.reload();
+        }, 1500);
       } catch (error) {
         setStatusMsg('Erro ao importar: Arquivo inválido.');
         setIsLoading(false);
@@ -276,6 +284,7 @@ export function DataManagementModal({ isOpen, onClose }: Props) {
       if (confirm('TEM CERTEZA? Isso apagará TUDO permanentemente. Não há como desfazer.')) {
           if (prompt('Digite DELETAR para confirmar:') === 'DELETAR') {
               await db.delete();
+              (window as any).skipUnloadCheck = true; // <-- DESLIGA O AVISO DE SAÍDA
               window.location.reload();
           }
       }
@@ -392,6 +401,7 @@ export function DataManagementModal({ isOpen, onClose }: Props) {
             <div className="pt-2 pb-4">
                 <button 
                     onClick={() => {
+                        (window as any).skipUnloadCheck = true; // <-- DESLIGA O AVISO DE SAÍDA AQUI TAMBÉM
                         window.close();
                         alert("Dados salvos! Você já pode fechar a aba do navegador no 'X' lá em cima com segurança.");
                     }}

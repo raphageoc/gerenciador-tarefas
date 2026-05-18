@@ -7,7 +7,7 @@ import { Dashboard } from './components/Dashboard';
 import { About } from './components/About';
 import { CloudGate } from './components/CloudGate'; 
 import { DataManagementModal } from './components/DataManagementModal'; 
-import { Brain, LayoutGrid, CheckSquare, Info, LogOut, Cloud, Eye } from 'lucide-react';
+import { Brain, LayoutGrid, CheckSquare, Info, Cloud, Eye } from 'lucide-react';
 import { db } from './db'; // <-- Precisamos importar o banco para checar se há tarefas rodando
 
 export const ReadOnlyContext = createContext(false);
@@ -32,6 +32,9 @@ function LayoutFrame({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      // Se a variável pular checagem for verdadeira, deixa fechar/recarregar direto!
+      if ((window as any).skipUnloadCheck) return; 
+      
       e.preventDefault();
       e.returnValue = 'Você salvou seus dados na nuvem antes de sair?';
     };

@@ -12,7 +12,7 @@ import { CreateProjectModal } from './CreateProjectModal';
 import { ReadOnlyContext } from '../App';
 
 export function TaskList() {
-  const isReadOnly = useContext(ReadOnlyContext); // <-- LENDO O MODO LEITURA AQUI
+  const isReadOnly = useContext(ReadOnlyContext);
 
   const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false);
   const [isDataModalOpen, setIsDataModalOpen] = useState(false);
@@ -97,7 +97,6 @@ export function TaskList() {
 
   const handleOpenProject = async (taskId: number) => {
       if (isReadOnly) {
-          // Se for somente leitura, apenas seleciona sem alterar o "order" no banco
           setSelectedProjectId(String(taskId));
           return;
       }
@@ -109,7 +108,6 @@ export function TaskList() {
       setSelectedProjectId(String(taskId));
   };
 
-  // --- DRAG & DROP (Com Trava de Leitura) ---
   const handleDragStart = (e: React.DragEvent, id: number) => {
       if (isReadOnly) return;
       setDraggedTaskId(id);
@@ -147,62 +145,67 @@ export function TaskList() {
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500 pb-20">
+      
+      {/* CABEÇALHO DIVIDIDO EM 3 COLUNAS */}
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-4 rounded-2xl shadow-sm border border-gray-200 z-40 relative">
-        <div>
+        
+        {/* 1. TÍTULO (ESQUERDA) */}
+        <div className="md:w-1/3 shrink-0">
             <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
                 <Layout className="text-blue-600" size={24} /> Meus Projetos
             </h2>
             <p className="text-gray-500 text-sm">Gerencie seu fluxo de trabalho.</p>
         </div>
 
-        <div className="flex gap-2 w-full md:w-auto">
-            {!isReadOnly && (
+        {/* 2. FILTRO (CENTRO) */}
+        <div className="relative flex-1 md:w-1/3 md:max-w-sm w-full mx-auto" ref={dropdownRef}>
             <button 
-                onClick={() => setIsDataModalOpen(true)}
-                className="p-2.5 bg-white border border-gray-200 rounded-xl text-gray-500 hover:text-gray-800 hover:border-gray-300 hover:bg-gray-50 transition-colors shadow-sm"
-                title="Backup e Dados"
+                onClick={() => { setIsProjectDropdownOpen(!isProjectDropdownOpen); if (!isProjectDropdownOpen) setTimeout(() => document.getElementById('project-search')?.focus(), 50); }} 
+                className="w-full flex items-center justify-between gap-2 bg-white border border-gray-200 rounded-xl px-4 py-2 text-sm text-gray-700 shadow-sm hover:border-blue-300 transition-colors"
             >
-                <Database size={20} />
+                <span className="truncate font-medium">{selectedLabel}</span>
+                <ChevronDown size={14} className="text-gray-400 shrink-0" />
             </button>
+            
+            {isProjectDropdownOpen && (
+                <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-xl border border-gray-200 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+                    <div className="p-2 border-b border-gray-100 bg-gray-50/50">
+                        <div className="relative">
+                            <Search size={14} className="absolute left-2.5 top-2.5 text-gray-400" />
+                            <input id="project-search" type="text" placeholder="Buscar projeto..." className="w-full pl-8 pr-8 py-2 text-sm bg-white border border-gray-200 rounded-lg outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} autoComplete="off" />
+                            {searchTerm && (<button onClick={() => setSearchTerm('')} className="absolute right-2 top-2 text-gray-400 hover:text-gray-600"><X size={14} /></button>)}
+                        </div>
+                    </div>
+                    <div className="max-h-[300px] overflow-y-auto p-1">
+                        <button onClick={() => { setSelectedProjectId('all'); setIsProjectDropdownOpen(false); setSearchTerm(''); }} className={`w-full text-left px-3 py-2 rounded-lg text-sm flex items-center justify-between mb-1 ${selectedProjectId === 'all' ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700 hover:bg-gray-50'}`}><span>Todos os Projetos</span>{selectedProjectId === 'all' && <Check size={14} />}</button>
+                        <div className="border-t border-gray-100 my-1 mx-2"></div>
+                        {filteredOptions.length === 0 ? (<div className="p-4 text-center text-xs text-gray-400">Nenhum projeto encontrado.</div>) : (filteredOptions.map(opt => (
+                            <button key={opt.id} onClick={() => { setSelectedProjectId(String(opt.id)); setIsProjectDropdownOpen(false); setSearchTerm(''); }} className={`w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-2 transition-colors ${String(opt.id) === String(selectedProjectId) ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-600 hover:bg-gray-50'}`}>
+                                <span style={{ width: opt.depth * 12 }} className="shrink-0"></span>{opt.depth > 0 && <CornerDownRight size={12} className="text-gray-300 shrink-0" />}<span className="truncate">{opt.title}</span>{String(opt.id) === String(selectedProjectId) && <Check size={14} className="ml-auto shrink-0" />}
+                            </button>
+                        )))}
+                    </div>
+                </div>
+            )}
+        </div>
+
+        {/* 3. AÇÕES (DIREITA) */}
+        <div className="flex justify-end gap-2 md:w-1/3 shrink-0 w-full md:w-auto mt-2 md:mt-0">
+            {!isReadOnly && (
+                <button 
+                    onClick={() => setIsDataModalOpen(true)}
+                    className="p-2.5 bg-white border border-gray-200 rounded-xl text-gray-500 hover:text-gray-800 hover:border-gray-300 hover:bg-gray-50 transition-colors shadow-sm"
+                    title="Backup e Dados"
+                >
+                    <Database size={20} />
+                </button>
             )}
 
-            {/* ESCONDE O BOTÃO DE NOVO PROJETO NO READONLY */}
             {!isReadOnly && (
                 <button onClick={() => setIsCreateModalOpen(true)} className="flex-1 md:flex-none bg-gray-900 hover:bg-black text-white px-4 py-2 rounded-xl font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-gray-200">
                     <Plus size={18} /> <span className="hidden sm:inline">Novo Projeto</span><span className="sm:hidden">Novo</span>
                 </button>
             )}
-            
-            <div className="relative flex-1 md:flex-none" ref={dropdownRef}>
-                <button 
-                    onClick={() => { setIsProjectDropdownOpen(!isProjectDropdownOpen); if (!isProjectDropdownOpen) setTimeout(() => document.getElementById('project-search')?.focus(), 50); }} 
-                    className="w-full md:w-[250px] flex items-center justify-between gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-700 shadow-sm hover:border-blue-300 transition-colors"
-                >
-                    <span className="truncate">{selectedLabel}</span>
-                    <ChevronDown size={14} className="text-gray-400 shrink-0" />
-                </button>
-                
-                {isProjectDropdownOpen && (
-                    <div className="absolute top-full right-0 md:right-0 left-0 md:left-auto mt-2 w-full md:w-[300px] bg-white rounded-xl shadow-xl border border-gray-200 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
-                        <div className="p-2 border-b border-gray-100 bg-gray-50/50">
-                            <div className="relative">
-                                <Search size={14} className="absolute left-2.5 top-2.5 text-gray-400" />
-                                <input id="project-search" type="text" placeholder="Buscar..." className="w-full pl-8 pr-8 py-2 text-sm bg-white border border-gray-200 rounded-lg outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} autoComplete="off" />
-                                {searchTerm && (<button onClick={() => setSearchTerm('')} className="absolute right-2 top-2 text-gray-400 hover:text-gray-600"><X size={14} /></button>)}
-                            </div>
-                        </div>
-                        <div className="max-h-[300px] overflow-y-auto p-1">
-                            <button onClick={() => { setSelectedProjectId('all'); setIsProjectDropdownOpen(false); setSearchTerm(''); }} className={`w-full text-left px-3 py-2 rounded-lg text-sm flex items-center justify-between mb-1 ${selectedProjectId === 'all' ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700 hover:bg-gray-50'}`}><span>Todos os Projetos</span>{selectedProjectId === 'all' && <Check size={14} />}</button>
-                            <div className="border-t border-gray-100 my-1 mx-2"></div>
-                            {filteredOptions.length === 0 ? (<div className="p-4 text-center text-xs text-gray-400">Nenhum projeto encontrado.</div>) : (filteredOptions.map(opt => (
-                                <button key={opt.id} onClick={() => { setSelectedProjectId(String(opt.id)); setIsProjectDropdownOpen(false); setSearchTerm(''); }} className={`w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-2 transition-colors ${String(opt.id) === String(selectedProjectId) ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-600 hover:bg-gray-50'}`}>
-                                    <span style={{ width: opt.depth * 12 }} className="shrink-0"></span>{opt.depth > 0 && <CornerDownRight size={12} className="text-gray-300 shrink-0" />}<span className="truncate">{opt.title}</span>{String(opt.id) === String(selectedProjectId) && <Check size={14} className="ml-auto shrink-0" />}
-                                </button>
-                            )))}
-                        </div>
-                    </div>
-                )}
-            </div>
         </div>
       </header>
 
@@ -219,7 +222,7 @@ export function TaskList() {
                 return (
                     <div 
                         key={task.id} 
-                        draggable={!isReadOnly && selectedProjectId === 'all'} // <-- TRAVA O ARRASTO GERAL
+                        draggable={!isReadOnly && selectedProjectId === 'all'}
                         onDragStart={(e) => !isReadOnly && task.id && handleDragStart(e, task.id)}
                         onDragOver={handleDragOver}
                         onDrop={(e) => !isReadOnly && task.id && handleDrop(e, task.id)}
@@ -228,7 +231,6 @@ export function TaskList() {
                         {selectedProjectId === 'all' && (
                             <div className="p-4 border-b border-gray-100 bg-gray-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3 group">
                                 <div className="flex items-center gap-3">
-                                    {/* SÓ MOSTRA O ÍCONE DE ARRASTAR SE NÃO FOR READONLY */}
                                     {!isReadOnly && (
                                         <div className="cursor-grab text-gray-300 hover:text-gray-500 active:cursor-grabbing">
                                             <GripVertical size={20} />
@@ -270,7 +272,6 @@ export function TaskList() {
         onClose={() => setIsDataModalOpen(false)} 
       />
 
-      {/* SÓ RENDERIZA O MODAL DE CRIAÇÃO SE NÃO FOR READONLY */}
       {!isReadOnly && (
           <CreateProjectModal 
             isOpen={isCreateModalOpen}

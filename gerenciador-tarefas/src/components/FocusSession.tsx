@@ -15,8 +15,6 @@ import { TaskItem } from './TaskItem';
 import brownNoiseUrl from '../assets/pinknoise.mp3'; 
 import { ReadOnlyContext } from '../App';
 
-
-
 // --- ÁUDIO GLOBAL ---
 const noiseAudio = new Audio(brownNoiseUrl);
 noiseAudio.loop = true;
@@ -35,7 +33,7 @@ export function FocusSession() {
 function FocusSessionInner({ taskId }: { taskId: number }) {
   const navigate = useNavigate();
   const ACTIVE_TASK_ID = taskId;
-  const isReadOnly = useContext(ReadOnlyContext); // <--- Adicione aqui junto com os outros hooks
+  const isReadOnly = useContext(ReadOnlyContext);
   const [viewedTaskId, setViewedTaskId] = useState(ACTIVE_TASK_ID);
   
   const viewedTaskIdRef = useRef(ACTIVE_TASK_ID);
@@ -354,21 +352,7 @@ function FocusSessionInner({ taskId }: { taskId: number }) {
       notesRef.current = html;
   };
 
-//   const handleEditorChange = (e: React.FormEvent<HTMLDivElement>) => {
-//       const target = e.target as HTMLElement;
-//       if (target.tagName === 'INPUT' && target.getAttribute('type') === 'checkbox') {
-//           const checkbox = target as HTMLInputElement;
-//           if (checkbox.checked) {
-//               checkbox.setAttribute('checked', 'true');
-//           } else {
-//               checkbox.removeAttribute('checked');
-//           }
-//           const html = editorRef.current?.innerHTML || "";
-//           setNotes(html);
-//           notesRef.current = html;
-//       }
-//   };
-const handleCheckboxInteraction = (e: React.MouseEvent<HTMLDivElement> | React.ChangeEvent<HTMLDivElement>) => {
+  const handleCheckboxInteraction = (e: React.MouseEvent<HTMLDivElement> | React.ChangeEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement;
     
     if (target.tagName === 'INPUT' && target.getAttribute('type') === 'checkbox') {
@@ -388,7 +372,7 @@ const handleCheckboxInteraction = (e: React.MouseEvent<HTMLDivElement> | React.C
             notesRef.current = html;
         }
     }
-};
+  };
 
   const handleFormat = (command: string) => {
       document.execCommand(command, false);
@@ -476,111 +460,122 @@ const handleCheckboxInteraction = (e: React.MouseEvent<HTMLDivElement> | React.C
             </div>
         )}
 
+        {/* =========================================================
+            COLUNAS INVERTIDAS
+            ESQUERDA: EDITOR + RECURSOS (span 4)
+            DIREITA: SUBTAREFAS (span 8)
+            ========================================================= */}
         <div className="flex-1 grid grid-cols-1 md:grid-cols-12 gap-4 min-h-0">
-            {/* COLUNA ESQUERDA */}
+            
+            {/* COLUNA ESQUERDA (Editor e Recursos) */}
             <div className="col-span-1 md:col-span-4 flex flex-col gap-3 h-full min-h-0">
-                <div className={`bg-white rounded-xl border p-4 flex flex-col flex-1 min-h-0 shadow-sm transition-colors ${isViewingOther ? 'border-blue-100 ring-2 ring-blue-50' : 'border-gray-100'}`}>
-                    <div className="flex flex-col items-start justify-between mb-3 border-b border-gray-100 pb-2 gap-2 flex-shrink-0">
-                        <div className="flex items-center flex-wrap gap-1 text-xs text-gray-500 w-full">
-                            <button onClick={() => handleSmartNavigate(activeTask.id!)} className={`hover:text-blue-600 hover:bg-blue-50 px-1 py-0.5 rounded transition-colors flex items-center gap-1 ${activeTask.id === viewedTaskId ? 'text-blue-600 font-bold' : ''}`}><Home size={10} /> Início</button>
-                            {breadcrumbs.length > 0 && <ChevronRight size={10} className="text-gray-300" />}
-                            {breadcrumbs.map((crumb) => (
-                                <div key={crumb.id} className="flex items-center gap-1">
-                                    <button onClick={() => handleSmartNavigate(crumb.id!)} className="hover:text-blue-600 hover:bg-blue-50 px-1 py-0.5 rounded transition-colors truncate max-w-[80px]" title={crumb.title}>{crumb.title}</button>
-                                    <ChevronRight size={10} className="text-gray-300" />
-                                </div>
-                            ))}
-                            {isViewingOther && (<span className="font-bold text-gray-800 bg-gray-100 px-1.5 py-0.5 rounded truncate max-w-[100px]" title={viewedTask.title}>{viewedTask.title}</span>)}
+                
+                {/* Editor */}
+                <div className={`bg-white rounded-2xl shadow-sm border flex flex-col overflow-hidden relative group flex-1 min-h-[300px] transition-colors ${isViewingOther ? 'border-blue-100 ring-2 ring-blue-50' : 'border-gray-100'}`}>
+                    <div className="p-3 border-b border-gray-50 bg-gray-50/50 flex justify-between items-center flex-shrink-0">
+                        <div className="flex items-center gap-4">
+                            <span className="text-xs font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                                {isViewingOther ? <Eye size={12} className="text-blue-400"/> : null}
+                                Notas de: <span className="text-gray-700">{viewedTask.title}</span>
+                            </span>
+                            {!isReadOnly && (
+                            <div className="flex items-center gap-1 border-l border-gray-200 pl-4">
+                                <button 
+                                    onClick={() => handleFormat('bold')} 
+                                    className="p-1.5 text-gray-500 hover:text-gray-800 hover:bg-gray-200 rounded transition-colors" 
+                                    title="Negrito (Ctrl+B)"
+                                >
+                                    <Bold size={14} />
+                                </button>
+                                <button 
+                                    onClick={() => handleFormat('insertUnorderedList')} 
+                                    className="p-1.5 text-gray-500 hover:text-gray-800 hover:bg-gray-200 rounded transition-colors" 
+                                    title="Criar Lista"
+                                >
+                                    <List size={14} />
+                                </button>
+                                <button 
+                                    onClick={applyChecklist} 
+                                    className="p-1.5 text-gray-500 hover:text-gray-800 hover:bg-gray-200 rounded transition-colors" 
+                                    title="Adicionar Checkbox"
+                                >
+                                    <CheckSquare size={14} />
+                                </button>
+                            </div>
+                            )}
                         </div>
+                        <span className="text-[10px] text-gray-400">
+                            {notes.replace(/<[^>]*>?/gm, '').length} caracteres
+                        </span>
                     </div>
 
-                    <div className="flex-1 overflow-y-auto space-y-1 pr-1 min-h-0">
-                        {sortedSubtasks?.length === 0 && <div className="text-center py-8 text-gray-400 text-xs italic">Sem subtarefas.</div>}
-                        
-                        {/* ATUALIZADO: Lista com Drag and Drop para as subtarefas */}
-                        {sortedSubtasks?.map(sub => {
-                            const isDragging = draggedSubtaskId === sub.id;
-                            
-                            return (
-                                <div 
-                                    key={sub.id} 
-                                    className={`scale-[0.98] origin-left transition-all ${isDragging ? 'opacity-40 ring-2 ring-blue-400 rounded-xl' : ''}`}
-                                    draggable={!isReadOnly}
-                                    onDragStart={(e) => sub.id && handleDragStart(e, sub.id)}
-                                    onDragOver={handleDragOver}
-                                    onDrop={(e) => sub.id && handleDrop(e, sub.id)}
-                                >
-                                    <TaskItem task={sub} onNavigate={handleSmartNavigate} />
-                                </div>
-                            );
-                        })}
-                        
-                        {!isReadOnly && (
-    <div className="flex items-center gap-2 mt-2 px-2 py-1 bg-gray-50 rounded-lg focus-within:ring-2 focus-within:ring-blue-100 flex-shrink-0">
-        <Plus className="text-gray-400" size={14} />
-        <input type="text" placeholder="Adicionar passo..." className="w-full bg-transparent text-sm outline-none text-gray-600 placeholder-gray-400" value={newSubtaskTitle} onChange={(e) => setNewSubtaskTitle(e.target.value)} onKeyDown={handleAddSubtask} />
-    </div>
-)}
-                    </div>
+                    <div 
+                        ref={editorRef}
+                        contentEditable={!isReadOnly}
+                        onInput={handleEditorInput}
+                        onClick={handleCheckboxInteraction}   
+                        onChange={handleCheckboxInteraction}
+                        data-placeholder={`Ideias sobre ${viewedTask.title}...`} 
+                        className="flex-1 w-full h-full p-4 outline-none text-gray-700 text-sm leading-relaxed font-normal overflow-y-auto empty:before:content-[attr(data-placeholder)] empty:before:text-gray-300 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_b]:font-bold [&_strong]:font-bold" 
+                        spellCheck={false} 
+                    />
                 </div>
 
-                <div className={`flex-1 min-h-0 rounded-xl border shadow-sm transition-colors ${isViewingOther ? 'border-blue-100 ring-2 ring-blue-50' : 'border-gray-100'}`}>
+                {/* Recursos */}
+                <div className={`flex-none min-h-[250px] rounded-xl border shadow-sm transition-colors ${isViewingOther ? 'border-blue-100 ring-2 ring-blue-50' : 'border-gray-100'}`}>
                     <TaskResources task={viewedTask} />
                 </div>
             </div>
 
-            {/* EDITOR RICO (WYSIWYG) */}
-            <div className={`col-span-1 md:col-span-8 bg-white rounded-2xl shadow-sm border flex flex-col overflow-hidden relative group min-h-[400px] md:h-full md:min-h-0 transition-colors ${isViewingOther ? 'border-blue-100 ring-2 ring-blue-50' : 'border-gray-100'}`}>
+            {/* COLUNA DIREITA (Breadcrumbs e Subtarefas) */}
+            <div className={`col-span-1 md:col-span-8 flex flex-col bg-white rounded-xl border p-4 shadow-sm transition-colors h-full min-h-0 ${isViewingOther ? 'border-blue-100 ring-2 ring-blue-50' : 'border-gray-100'}`}>
                 
-                <div className="p-3 border-b border-gray-50 bg-gray-50/50 flex justify-between items-center flex-shrink-0">
-                    <div className="flex items-center gap-4">
-                        <span className="text-xs font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
-                            {isViewingOther ? <Eye size={12} className="text-blue-400"/> : null}
-                            Notas de: <span className="text-gray-700">{viewedTask.title}</span>
-                        </span>
-                        {!isReadOnly && (
-                        <div className="flex items-center gap-1 border-l border-gray-200 pl-4">
-                            <button 
-                                onClick={() => handleFormat('bold')} 
-                                className="p-1.5 text-gray-500 hover:text-gray-800 hover:bg-gray-200 rounded transition-colors" 
-                                title="Negrito (Ctrl+B)"
-                            >
-                                <Bold size={14} />
-                            </button>
-                            <button 
-                                onClick={() => handleFormat('insertUnorderedList')} 
-                                className="p-1.5 text-gray-500 hover:text-gray-800 hover:bg-gray-200 rounded transition-colors" 
-                                title="Criar Lista"
-                            >
-                                <List size={14} />
-                            </button>
-                            <button 
-                                onClick={applyChecklist} 
-                                className="p-1.5 text-gray-500 hover:text-gray-800 hover:bg-gray-200 rounded transition-colors" 
-                                title="Adicionar Checkbox"
-                            >
-                                <CheckSquare size={14} />
-                            </button>
-                        </div>
-                        )}
+                {/* Breadcrumbs */}
+                <div className="flex flex-col items-start justify-between mb-3 border-b border-gray-100 pb-2 gap-2 flex-shrink-0">
+                    <div className="flex items-center flex-wrap gap-1 text-xs text-gray-500 w-full">
+                        <button onClick={() => handleSmartNavigate(activeTask.id!)} className={`hover:text-blue-600 hover:bg-blue-50 px-1 py-0.5 rounded transition-colors flex items-center gap-1 ${activeTask.id === viewedTaskId ? 'text-blue-600 font-bold' : ''}`}><Home size={10} /> Início</button>
+                        {breadcrumbs.length > 0 && <ChevronRight size={10} className="text-gray-300" />}
+                        {breadcrumbs.map((crumb) => (
+                            <div key={crumb.id} className="flex items-center gap-1">
+                                <button onClick={() => handleSmartNavigate(crumb.id!)} className="hover:text-blue-600 hover:bg-blue-50 px-1 py-0.5 rounded transition-colors truncate max-w-[120px]" title={crumb.title}>{crumb.title}</button>
+                                <ChevronRight size={10} className="text-gray-300" />
+                            </div>
+                        ))}
+                        {isViewingOther && (<span className="font-bold text-gray-800 bg-gray-100 px-1.5 py-0.5 rounded truncate max-w-[200px]" title={viewedTask.title}>{viewedTask.title}</span>)}
                     </div>
-
-                    <span className="text-[10px] text-gray-400">
-                        {notes.replace(/<[^>]*>?/gm, '').length} caracteres
-                    </span>
                 </div>
 
-                <div 
-                    ref={editorRef}
-                    contentEditable={!isReadOnly}
-                    onInput={handleEditorInput}
-                    onClick={handleCheckboxInteraction}   
-                    onChange={handleCheckboxInteraction}
-                    data-placeholder={`Ideias sobre ${viewedTask.title}...`} 
-                    className="flex-1 w-full h-full p-6 outline-none text-gray-700 text-base leading-relaxed font-normal overflow-y-auto empty:before:content-[attr(data-placeholder)] empty:before:text-gray-300 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_b]:font-bold [&_strong]:font-bold" 
-                    spellCheck={false} 
-                />
+                {/* Subtarefas */}
+                <div className="flex-1 overflow-y-auto space-y-1 pr-2 min-h-0">
+                    {sortedSubtasks?.length === 0 && <div className="text-center py-8 text-gray-400 text-xs italic">Sem subtarefas.</div>}
+                    
+                    {sortedSubtasks?.map((sub, index) => {
+                        const isDragging = draggedSubtaskId === sub.id;
+                        
+                        return (
+                            <div 
+                                key={sub.id} 
+                                className={`scale-[0.98] origin-left transition-all ${isDragging ? 'opacity-40 ring-2 ring-blue-400 rounded-xl' : ''}`}
+                                draggable={!isReadOnly}
+                                onDragStart={(e) => sub.id && handleDragStart(e, sub.id)}
+                                onDragOver={handleDragOver}
+                                onDrop={(e) => sub.id && handleDrop(e, sub.id)}
+                            >
+                                {/* ADICIONADO O INDEXSTRING AQUI */}
+                                <TaskItem task={sub} onNavigate={handleSmartNavigate} indexString={`${index + 1}.`} />
+                            </div>
+                        );
+                    })}
+                    
+                    {!isReadOnly && (
+                        <div className="flex items-center gap-2 mt-2 px-2 py-1 bg-gray-50 rounded-lg focus-within:ring-2 focus-within:ring-blue-100 flex-shrink-0">
+                            <Plus className="text-gray-400" size={14} />
+                            <input type="text" placeholder="Adicionar passo..." className="w-full bg-transparent text-sm outline-none text-gray-600 placeholder-gray-400" value={newSubtaskTitle} onChange={(e) => setNewSubtaskTitle(e.target.value)} onKeyDown={handleAddSubtask} />
+                        </div>
+                    )}
+                </div>
             </div>
+
         </div>
       </div>
       

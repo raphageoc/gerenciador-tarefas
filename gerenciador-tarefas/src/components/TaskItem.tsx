@@ -1,4 +1,3 @@
-
 // src/components/TaskItem.tsx
 import { useState, useMemo, useRef, useEffect, useContext } from 'react';
 import { 
@@ -16,15 +15,24 @@ interface Props {
   task: Task;
   depth?: number;
   onNavigate?: (taskId: number) => void;
+  indexString?: string; // <-- ADICIONADO: Prop para receber a numeração (ex: "1.2.")
 }
 
-const formatDateTime = (date: Date) => {
-    return date.toLocaleDateString('pt-BR', {
+const formatDateTime = (date: Date | string) => {
+    if (!date) return '';
+    
+    // Se vier do banco como string (texto), transforma em objeto Date na hora
+    const d = typeof date === 'string' ? new Date(date) : date;
+    
+    // Se a data for inválida, retorna vazio para não quebrar a tela
+    if (isNaN(d.getTime())) return '';
+
+    return d.toLocaleDateString('pt-BR', {
         day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
     });
 };
 
-export function TaskItem({ task, depth = 0, onNavigate }: Props) {
+export function TaskItem({ task, depth = 0, onNavigate, indexString }: Props) {
   const navigate = useNavigate();
   const isReadOnly = useContext(ReadOnlyContext); // <-- LENDO O MODO LEITURA AQUI
 
@@ -195,7 +203,11 @@ export function TaskItem({ task, depth = 0, onNavigate }: Props) {
             <input autoFocus className="w-full bg-gray-50 border border-blue-200 rounded px-2 py-1 text-sm outline-none focus:ring-2 focus:ring-blue-100" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} onBlur={handleSave} onKeyDown={(e) => e.key === 'Enter' && handleSave()} onClick={(e) => e.stopPropagation()} />
           ) : (
             <div className="flex flex-col gap-1">
-                <span className={`text-sm font-medium leading-tight ${task.status === 'done' ? 'text-gray-400 line-through' : 'text-gray-700'}`}>{task.title}</span>
+                <span className={`text-sm font-medium leading-tight flex items-center ${task.status === 'done' ? 'text-gray-400 line-through' : 'text-gray-700'}`}>
+                    {/* ADICIONADO: Exibição do índice antes do título */}
+                    {indexString && <span className="text-gray-400 font-mono text-[11px] mr-1.5">{indexString}</span>}
+                    {task.title}
+                </span>
                 <div className="flex items-center flex-wrap gap-3">
                     {task.deadline && (<span className={`text-[10px] flex items-center gap-1 ${new Date(task.deadline) < new Date() && task.status !== 'done' ? 'text-red-500 font-bold' : 'text-gray-400'}`}><Calendar size={10} /> {new Date(task.deadline).toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit'})}</span>)}
                     {hasSubtasks && (<div className="flex items-center gap-2"><div className="w-12 h-1 bg-gray-100 rounded-full overflow-hidden"><div className="h-full bg-blue-500 transition-all duration-500" style={{ width: `${calculatedProgress}%` }} /></div><span className="text-[10px] text-gray-400 font-mono">{Math.round(calculatedProgress)}%</span></div>)}
@@ -223,8 +235,15 @@ export function TaskItem({ task, depth = 0, onNavigate }: Props) {
       </div>
       {isExpanded && sortedSubtasks && sortedSubtasks.length > 0 && (
         <div className="pl-4 ml-3 border-l border-gray-100 space-y-1">
-            {sortedSubtasks.map(subtask => (
-            <TaskItem key={subtask.id} task={subtask} depth={depth + 1} onNavigate={onNavigate} />
+            {/* ADICIONADO: Passando o index calculado para os filhos recursivamente */}
+            {sortedSubtasks.map((subtask, idx) => (
+            <TaskItem 
+                key={subtask.id} 
+                task={subtask} 
+                depth={depth + 1} 
+                onNavigate={onNavigate} 
+                indexString={indexString ? `${indexString}${idx + 1}.` : `${idx + 1}.`} 
+            />
             ))}
         </div>
       )}
