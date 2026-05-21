@@ -2,7 +2,7 @@
 import { useEffect, useState, useRef, useMemo, useContext } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, type Task } from '../db';
+import { db, type Task, type TaskResource } from '../db';
 import { 
   Play, Pause, ArrowLeft, StopCircle, Clock, Plus, AlertTriangle, 
   Eye, ArrowUpRight, Home, ChevronRight, Volume2, VolumeX, Wind, RotateCcw,
@@ -502,6 +502,12 @@ function FocusSessionInner({ taskId }: { taskId: number }) {
                     </div>
 
                     <div className="flex-1 overflow-y-auto space-y-1 pr-2 min-h-0">
+                        {!isReadOnly && (
+                            <div className="flex items-center gap-2 mb-3 px-2 py-1 bg-gray-50 rounded-lg focus-within:ring-2 focus-within:ring-blue-100 flex-shrink-0">
+                                <Plus className="text-gray-400" size={14} />
+                                <input type="text" placeholder="Adicionar passo..." className="w-full bg-transparent text-sm outline-none text-gray-600 placeholder-gray-400" value={newSubtaskTitle} onChange={(e) => setNewSubtaskTitle(e.target.value)} onKeyDown={handleAddSubtask} />
+                            </div>
+                        )}
                         {sortedSubtasks?.length === 0 && <div className="text-center py-8 text-gray-400 text-xs italic">Sem subtarefas.</div>}
                         
                         {sortedSubtasks?.map((sub, index) => {
@@ -521,12 +527,7 @@ function FocusSessionInner({ taskId }: { taskId: number }) {
                             );
                         })}
                         
-                        {!isReadOnly && (
-                            <div className="flex items-center gap-2 mt-2 px-2 py-1 bg-gray-50 rounded-lg focus-within:ring-2 focus-within:ring-blue-100 flex-shrink-0">
-                                <Plus className="text-gray-400" size={14} />
-                                <input type="text" placeholder="Adicionar passo..." className="w-full bg-transparent text-sm outline-none text-gray-600 placeholder-gray-400" value={newSubtaskTitle} onChange={(e) => setNewSubtaskTitle(e.target.value)} onKeyDown={handleAddSubtask} />
-                            </div>
-                        )}
+                        
                     </div>
                 </div>
 

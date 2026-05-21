@@ -2,7 +2,7 @@
 import { useState, useMemo } from 'react';
 import { createPortal } from 'react-dom'; // IMPORTANTE: Importar o Portal
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, type Task } from '../db';
+import { db, type Task, type TaskResource } from '../db';
 import { X, CornerDownRight, Check, Search } from 'lucide-react';
 
 interface Props {

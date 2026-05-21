@@ -7,8 +7,9 @@ import { Dashboard } from './components/Dashboard';
 import { About } from './components/About';
 import { CloudGate } from './components/CloudGate'; 
 import { DataManagementModal } from './components/DataManagementModal'; 
+import { DeadlineAlertModal } from './components/DeadlineAlertModal'; // <-- IMPORTANTE
 import { Brain, LayoutGrid, CheckSquare, Info, Cloud, Eye } from 'lucide-react';
-import { db } from './db'; 
+import { db, type Task, type TaskResource } from './db';
 
 export const ReadOnlyContext = createContext(false);
 
@@ -89,14 +90,34 @@ function LayoutFrame({ children }: { children: React.ReactNode }) {
 function App() {
   const [hasPassedGate, setHasPassedGate] = useState(false);
   const [isReadOnly, setIsReadOnly] = useState(false);
+  
+  // Estados para o modal de alerta de prazos
+  const [showDeadlineModal, setShowDeadlineModal] = useState(false);
+  const [urgentTasks, setUrgentTasks] = useState<any[]>([]);
 
-  const handleUnlock = (readOnlyMode: boolean) => {
+  const handleUnlock = async (readOnlyMode: boolean) => {
     setIsReadOnly(readOnlyMode);
     setHasPassedGate(true);
+    
+    // VERIFICAÇÃO DE PRAZOS AO LOGAR
+    const all = await db.tasks.toArray();
+    const urgent = all
+        .filter(t => t.deadline && t.status !== 'done')
+        .map(t => ({ 
+            ...t, 
+            daysLeft: Math.ceil((new Date(t.deadline!).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)) 
+        }))
+        .filter(t => t.daysLeft <= 30) // Mostra se faltam 3 dias ou menos
+        .sort((a, b) => a.daysLeft - b.daysLeft);
+
+    if (urgent.length > 0) {
+        setUrgentTasks(urgent);
+        setShowDeadlineModal(true);
+    }
   };
 
   // ====================================================================
-  // CONTROLE DE INATIVIDADE (AUTO-LOGOUT) FINAL / LIMPO
+  // CONTROLE DE INATIVIDADE (AUTO-LOGOUT)
   // ====================================================================
   const lastActivityRef = useRef(Date.now());
 
@@ -113,7 +134,6 @@ function App() {
   useEffect(() => {
     if (isReadOnly || !hasPassedGate) return;
 
-    // Tempo limite de inatividade: 15 Minutos (15 * 60 * 1000)
     const IDLE_TIMEOUT_MS = 15 * 60 * 1000; 
 
     const checkIdleInterval = setInterval(async () => {
@@ -125,20 +145,18 @@ function App() {
 
           if (activeTasksCount === 0) {
             console.log("Inatividade detectada. Sessão encerrada.");
-            setHasPassedGate(false); // Expulsa para a tela de login
+            setHasPassedGate(false); 
           } else {
-            // Se há um cronómetro a rodar, renovamos o tempo em silêncio
             lastActivityRef.current = Date.now();
           }
         } catch (e) {
           console.error("Erro ao verificar tarefas ativas:", e);
         }
       }
-    }, 10000); // Acorda a cada 10 segundos de forma silenciosa e invisível
+    }, 10000); 
 
     return () => clearInterval(checkIdleInterval);
   }, [isReadOnly, hasPassedGate]);
-  // ====================================================================
 
   return (
     <HashRouter>
@@ -146,14 +164,22 @@ function App() {
         {!hasPassedGate ? (
           <CloudGate onUnlock={handleUnlock} />
         ) : (
-          <LayoutFrame>
-            <Routes>
-              <Route path="/" element={<TaskList />} />
-              <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/about" element={<About />} />
-              <Route path="/focus/:taskId" element={<FocusSession />} />
-            </Routes>
-          </LayoutFrame>
+          <>
+            {showDeadlineModal && (
+                <DeadlineAlertModal 
+                    tasks={urgentTasks} 
+                    onClose={() => setShowDeadlineModal(false)} 
+                />
+            )}
+            <LayoutFrame>
+              <Routes>
+                <Route path="/" element={<TaskList />} />
+                <Route path="/dashboard" element={<Dashboard />} />
+                <Route path="/about" element={<About />} />
+                <Route path="/focus/:taskId" element={<FocusSession />} />
+              </Routes>
+            </LayoutFrame>
+          </>
         )}
       </ReadOnlyContext.Provider>
     </HashRouter>

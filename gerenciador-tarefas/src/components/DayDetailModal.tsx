@@ -1,7 +1,7 @@
 // src/components/DayDetailModal.tsx
 import { useMemo, useState } from 'react';
 import { X, Calendar, Activity, Clock, Save } from 'lucide-react';
-import { db, type Task } from '../db';
+import { db, type Task, type TaskResource } from '../db';
 
 interface Props {
   date: Date | null;

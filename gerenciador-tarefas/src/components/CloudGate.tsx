@@ -2,7 +2,8 @@
 import { useState, useEffect } from 'react';
 import { useGoogleLogin } from '@react-oauth/google';
 import { Brain, AlertTriangle, Cloud, Monitor, Unlock, ArrowRight, Info } from 'lucide-react';
-import { db } from '../db'; // <-- IMPORTANDO O BANCO DE DADOS
+import { db, type Task } from '../db';
+
 
 interface CloudGateProps {
   onUnlock: (isReadOnly: boolean) => void;

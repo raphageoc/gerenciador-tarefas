@@ -1,6 +1,7 @@
 // src/components/DataManagement.tsx
 import { useState, useRef } from 'react';
-import { db } from '../db';
+import { db, type Task } from '../db';
+
 import { Download, Trash2, UploadCloud, RefreshCw } from 'lucide-react';
 
 // ATENÇÃO: A palavra 'export' aqui é obrigatória para o erro sumir

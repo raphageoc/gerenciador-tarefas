@@ -1,7 +1,10 @@
 // src/components/DataManagementModal.tsx
 import { useState, useRef } from 'react';
-import { db } from '../db';
-import { X, Download, Upload, Trash2, Database, CheckCircle2, Cloud, LogOut } from 'lucide-react';
+import { db, type Task, type TaskResource } from '../db';
+import { 
+    X, Download, Upload, Trash2, Database, 
+    CheckCircle2, Cloud, LogOut, AlertTriangle 
+} from 'lucide-react';
 import { useGoogleLogin } from '@react-oauth/google';
 
 interface Props {
@@ -9,17 +12,25 @@ interface Props {
   onClose: () => void;
 }
 
+type ModalType = 'drive_restore' | 'local_restore' | 'reset_db' | 'close_tab' | null;
+
 export function DataManagementModal({ isOpen, onClose }: Props) {
   const [isLoading, setIsLoading] = useState(false);
   const [statusMsg, setStatusMsg] = useState('');
   
-  // 1. ATUALIZAMOS OS TIPOS DE AÇÃO PARA IDENTIFICAR A ESCOLHA DO USUÁRIO
   const [driveAction, setDriveAction] = useState<'backup_only' | 'backup_exit' | 'restore' | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // --- ESTADOS DO NOVO MODAL DE CONFIRMAÇÃO ---
+  const [modalState, setModalState] = useState<{
+    isOpen: boolean;
+    type: ModalType;
+    pendingFile?: File | null;
+  }>({ isOpen: false, type: null });
+  const [confirmInput, setConfirmInput] = useState('');
+
   const handleDriveLogin = useGoogleLogin({
     onSuccess: (tokenResponse) => {
-      // 2. REPASSA A INTENÇÃO DO USUÁRIO PARA A FUNÇÃO
       if (driveAction === 'backup_only' || driveAction === 'backup_exit') {
          executeDriveBackup(tokenResponse.access_token, driveAction === 'backup_exit');
       }
@@ -70,7 +81,9 @@ export function DataManagementModal({ isOpen, onClose }: Props) {
   };
 
   const triggerDriveAction = (action: 'backup_only' | 'backup_exit' | 'restore') => {
-    if (action === 'restore' && !confirm('ATENÇÃO: Restaurar do Drive irá SUBSTITUIR todos os dados atuais. Deseja continuar?')) {
+    if (action === 'restore') {
+        // ABRE O MODAL EM VEZ DE USAR CONFIRM
+        setModalState({ isOpen: true, type: 'drive_restore' });
         return;
     }
     setDriveAction(action);
@@ -79,11 +92,9 @@ export function DataManagementModal({ isOpen, onClose }: Props) {
     handleDriveLogin();
   };
 
-  // 3. FUNÇÃO AGORA RECEBE UM BOOLEANO: DEVE LIBERAR A TRAVA?
   const executeDriveBackup = async (accessToken: string, shouldReleaseLock: boolean) => {
     setStatusMsg('Verificando permissões de segurança...');
     try {
-      // DUPLO CHEQUE: Eu ainda sou o dono da trava?
       const lockSearchRes = await fetch("https://www.googleapis.com/drive/v3/files?q=name='flowmanager_lock.json' and trashed=false", {
         headers: { Authorization: `Bearer ${accessToken}` }
       });
@@ -137,7 +148,6 @@ export function DataManagementModal({ isOpen, onClose }: Props) {
 
       if (!uploadRes.ok) throw new Error('Falha no upload do backup');
 
-      // 4. LÓGICA CONDICIONAL DE LIBERAÇÃO DA TRAVA E SAÍDA
       if (shouldReleaseLock) {
           setStatusMsg('Liberando trava e desconectando...');
           
@@ -146,7 +156,7 @@ export function DataManagementModal({ isOpen, onClose }: Props) {
             const unlockData = {
               deviceId: deviceId,
               userAgent: navigator.userAgent.substring(0, 40) + '...',
-              isLocked: false, // <-- DESTRAVA
+              isLocked: false, 
               lastOpened: new Date().toISOString()
             };
             
@@ -163,14 +173,12 @@ export function DataManagementModal({ isOpen, onClose }: Props) {
             });
           }
 
-          // Reinicia a página para voltar para o CloudGate
           setTimeout(() => {
-            (window as any).skipUnloadCheck = true; // <-- DESLIGA O AVISO DE SAÍDA
+            (window as any).skipUnloadCheck = true;
             window.location.reload(); 
           }, 1500);
 
       } else {
-          // SE NÃO PEDIU PRA SAIR, SÓ AVISA E FECHA O MODAL
           setStatusMsg('Backup salvo com sucesso! Você continua no controle.');
           setTimeout(() => {
             setStatusMsg('');
@@ -214,7 +222,7 @@ export function DataManagementModal({ isOpen, onClose }: Props) {
 
       setStatusMsg('Dados restaurados com sucesso!');
       setTimeout(() => {
-        (window as any).skipUnloadCheck = true; // <-- DESLIGA O AVISO DE SAÍDA
+        (window as any).skipUnloadCheck = true; 
         window.location.reload();
       }, 1500);
     } catch (error) {
@@ -253,11 +261,12 @@ export function DataManagementModal({ isOpen, onClose }: Props) {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!confirm('ATENÇÃO: Importar um backup irá SUBSTITUIR todos os dados atuais. Deseja continuar?')) {
-        e.target.value = ''; 
-        return;
-    }
+    // ABRE O MODAL EM VEZ DE USAR CONFIRM
+    setModalState({ isOpen: true, type: 'local_restore', pendingFile: file });
+    if (fileInputRef.current) fileInputRef.current.value = ''; 
+  };
 
+  const processLocalFile = (file: File) => {
     setIsLoading(true);
     setStatusMsg('Lendo arquivo...');
 
@@ -269,7 +278,7 @@ export function DataManagementModal({ isOpen, onClose }: Props) {
         await restoreDataToDb(data);
         setStatusMsg('Dados restaurados com sucesso!');
         setTimeout(() => {
-            (window as any).skipUnloadCheck = true; // <-- DESLIGA O AVISO DE SAÍDA
+            (window as any).skipUnloadCheck = true;
             window.location.reload();
         }, 1500);
       } catch (error) {
@@ -280,15 +289,85 @@ export function DataManagementModal({ isOpen, onClose }: Props) {
     reader.readAsText(file);
   };
 
-  const handleReset = async () => {
-      if (confirm('TEM CERTEZA? Isso apagará TUDO permanentemente. Não há como desfazer.')) {
-          if (prompt('Digite DELETAR para confirmar:') === 'DELETAR') {
+  const handleResetClick = () => {
+      // ABRE O MODAL EM VEZ DE USAR CONFIRM/PROMPT
+      setModalState({ isOpen: true, type: 'reset_db' });
+  };
+
+  // --- LÓGICA DE CONFIRMAÇÃO DO NOVO MODAL ---
+  const closeConfirmModal = () => {
+      setModalState({ isOpen: false, type: null });
+      setConfirmInput('');
+  };
+
+  const handleModalConfirm = async () => {
+      const type = modalState.type;
+      
+      if (type === 'drive_restore') {
+          setDriveAction('restore');
+          setIsLoading(true);
+          setStatusMsg('Conectando ao Google...');
+          handleDriveLogin();
+          closeConfirmModal();
+      } 
+      else if (type === 'local_restore' && modalState.pendingFile) {
+          processLocalFile(modalState.pendingFile);
+          closeConfirmModal();
+      } 
+      else if (type === 'reset_db') {
+          if (confirmInput === 'DELETAR') {
               await db.delete();
-              (window as any).skipUnloadCheck = true; // <-- DESLIGA O AVISO DE SAÍDA
+              (window as any).skipUnloadCheck = true;
               window.location.reload();
           }
       }
+      else if (type === 'close_tab') {
+          closeConfirmModal();
+      }
   };
+
+  // GERAÇÃO DINÂMICA DA INTERFACE DO MODAL SECUNDÁRIO
+  const getModalConfig = () => {
+      if (modalState.type === 'drive_restore' || modalState.type === 'local_restore') {
+          return {
+              icon: <AlertTriangle size={24} className="text-orange-600" />,
+              bg: 'bg-orange-100',
+              title: 'Atenção: Substituir Dados',
+              desc: 'Esta ação irá APAGAR TODOS os projetos atuais deste computador e substituí-los pelo backup selecionado. Tem certeza de que deseja continuar?',
+              confirmText: 'Sim, Substituir Dados',
+              confirmClass: 'bg-orange-600 hover:bg-orange-700 text-white',
+              requireInput: false,
+              hideCancel: false
+          };
+      }
+      if (modalState.type === 'reset_db') {
+           return {
+              icon: <Trash2 size={24} className="text-red-600" />,
+              bg: 'bg-red-100',
+              title: 'Apagar Tudo Permanentemente',
+              desc: 'Esta ação é irreversível. Todos os seus dados locais e projetos serão completamente destruídos.',
+              confirmText: 'Apagar Tudo',
+              confirmClass: 'bg-red-600 hover:bg-red-700 text-white disabled:opacity-50 disabled:cursor-not-allowed',
+              requireInput: true,
+              hideCancel: false
+          };
+      }
+      if (modalState.type === 'close_tab') {
+           return {
+              icon: <CheckCircle2 size={32} className="text-green-600" />,
+              bg: 'bg-green-100',
+              title: 'Tudo Salvo com Sucesso!',
+              desc: 'Você já pode fechar esta aba do navegador com segurança clicando no "X" lá em cima.',
+              confirmText: 'Entendido',
+              confirmClass: 'bg-green-600 hover:bg-green-700 text-white',
+              requireInput: false,
+              hideCancel: true
+          };
+      }
+      return null;
+  };
+
+  const modalConfig = getModalConfig();
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
@@ -303,7 +382,7 @@ export function DataManagementModal({ isOpen, onClose }: Props) {
           </button>
         </div>
 
-        <div className="p-6 space-y-6 overflow-y-auto">
+        <div className="p-6 space-y-6 overflow-y-auto relative">
             
             {statusMsg && (
                 <div className={`p-3 rounded-lg text-sm font-medium flex items-center gap-2 ${statusMsg.includes('ERRO') || statusMsg.includes('Erro') ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>
@@ -312,7 +391,7 @@ export function DataManagementModal({ isOpen, onClose }: Props) {
                 </div>
             )}
 
-            {/* 5. INTERFACE DO DRIVE COM 3 BOTÕES */}
+            {/* INTERFACE DO DRIVE COM 3 BOTÕES */}
             <div className="space-y-3 bg-blue-50/50 p-4 rounded-xl border border-blue-100">
                 <div>
                     <h4 className="text-sm font-bold text-blue-900 flex items-center gap-2">
@@ -367,11 +446,11 @@ export function DataManagementModal({ isOpen, onClose }: Props) {
 
             <div className="space-y-2">
                 <h4 className="text-sm font-bold text-gray-700">Restaurar Manual (PC)</h4>
-                <p className="text-xs text-gray-500">Recupere de um arquivo local. <span className="text-red-500 font-bold">Substitui dados atuais.</span></p>
+                <p className="text-xs text-gray-500">Recupere de um arquivo local. <span className="text-orange-500 font-bold">Substitui dados atuais.</span></p>
                 <button 
                     onClick={handleImportClick}
                     disabled={isLoading}
-                    className="w-full flex items-center justify-center gap-2 p-3 bg-white border border-gray-200 hover:border-green-300 hover:bg-gray-50 hover:text-green-700 rounded-xl transition-all shadow-sm font-medium text-gray-600 disabled:opacity-50"
+                    className="w-full flex items-center justify-center gap-2 p-3 bg-white border border-gray-200 hover:border-orange-300 hover:bg-orange-50 hover:text-orange-600 rounded-xl transition-all shadow-sm font-medium text-gray-600 disabled:opacity-50"
                 >
                     <Upload size={18} /> Carregar arquivo local
                 </button>
@@ -388,7 +467,7 @@ export function DataManagementModal({ isOpen, onClose }: Props) {
 
             <div className="space-y-2 pt-2">
                 <button 
-                    onClick={handleReset}
+                    onClick={handleResetClick}
                     disabled={isLoading}
                     className="w-full flex items-center justify-center gap-2 p-3 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl transition-colors font-bold text-xs uppercase tracking-widest disabled:opacity-50"
                 >
@@ -401,15 +480,64 @@ export function DataManagementModal({ isOpen, onClose }: Props) {
             <div className="pt-2 pb-4">
                 <button 
                     onClick={() => {
-                        (window as any).skipUnloadCheck = true; // <-- DESLIGA O AVISO DE SAÍDA AQUI TAMBÉM
-                        window.close();
-                        alert("Dados salvos! Você já pode fechar a aba do navegador no 'X' lá em cima com segurança.");
+                        (window as any).skipUnloadCheck = true; 
+                        setModalState({ isOpen: true, type: 'close_tab' });
+                        try { window.close(); } catch(e) {}
                     }}
                     className="w-full flex items-center justify-center gap-2 p-4 bg-gray-800 hover:bg-gray-900 text-white rounded-xl transition-colors font-bold text-sm shadow-md"
                 >
                     Já fechei meu aplicativo, quero fechar a aba
                 </button>
             </div>
+            
+            {/* O MODAL SOBREPOSTO DE CONFIRMAÇÃO */}
+            {modalState.isOpen && modalConfig && (
+                <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+                  <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full">
+                     
+                     <div className="flex items-center gap-3 mb-4">
+                        <div className={`p-3 rounded-xl ${modalConfig.bg}`}>
+                           {modalConfig.icon}
+                        </div>
+                        <h3 className="text-xl font-bold text-gray-800 leading-tight">{modalConfig.title}</h3>
+                     </div>
+
+                     <p className="text-sm text-gray-600 mb-6">{modalConfig.desc}</p>
+
+                     {modalConfig.requireInput && (
+                         <div className="mb-6">
+                            <label className="block text-xs font-bold text-gray-700 mb-2 uppercase tracking-wider">
+                                Digite <span className="text-red-600 select-all">DELETAR</span> para confirmar:
+                            </label>
+                            <input
+                               type="text"
+                               autoFocus
+                               value={confirmInput}
+                               onChange={e => setConfirmInput(e.target.value)}
+                               className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-center font-mono text-sm outline-none focus:ring-2 focus:ring-red-100 transition-all text-red-600 uppercase"
+                               placeholder="DELETAR"
+                            />
+                         </div>
+                     )}
+
+                     <div className="flex gap-3 w-full">
+                        {!modalConfig.hideCancel && (
+                            <button onClick={closeConfirmModal} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50 font-bold text-sm transition-colors">
+                                Cancelar
+                            </button>
+                        )}
+                        <button
+                           onClick={handleModalConfirm}
+                           disabled={modalConfig.requireInput && confirmInput !== 'DELETAR'}
+                           className={`flex-1 py-2.5 rounded-xl font-bold text-sm transition-all shadow-sm ${modalConfig.confirmClass}`}
+                        >
+                            {modalConfig.confirmText}
+                        </button>
+                     </div>
+
+                  </div>
+                </div>
+            )}
 
         </div>
       </div>

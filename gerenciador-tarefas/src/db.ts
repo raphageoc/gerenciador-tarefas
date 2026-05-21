@@ -1,73 +1,61 @@
 // src/db.ts
 import Dexie, { type Table } from 'dexie';
 
-export interface TaskSession {
+export interface Session {
   start: Date;
   end: Date;
-  stressLevel?: number;
+  stressLevel?: number; 
   stressNote?: string;
   didBreathing?: boolean;
 }
 
 export interface TaskResource {
   id: string;
-  type: 'file' | 'link' | 'folder';
+  type: 'link' | 'folder' | 'file';
   title: string;
   value: string;
-  handle?: any;
-  content?: string;
   createdAt: Date;
 }
 
 export interface Task {
   id?: number;
-  parentId?: number;
+  parentId?: number; 
   title: string;
   description: string;
-  status: 'todo' | 'in_progress' | 'paused' | 'done';
-  createdAt: Date;
-  deadline?: Date;
-  timeSpentMs: number;
-  sessions: TaskSession[];
-  resources: TaskResource[];
-  links: string[]; 
+  status: 'todo' | 'in_progress' | 'done' | 'paused';
   progress?: number; 
-  
-  // --- CAMPOS ADICIONADOS PARA AS NOVAS FUNCIONALIDADES ---
-  order?: number;       // Usado para salvar a ordem do Drag and Drop
-  completedAt?: Date;   // Usado para salvar o momento em que a tarefa foi marcada como 'done'
+  createdAt: Date;
+  deadline?: Date; 
+  completedAt?: Date;
+  timeSpentMs: number;
+  sessions: Session[]; 
+  resources: TaskResource[]; 
+  links: { title: string; url: string }[];
+  order?: number;
 }
 
-export interface CheckIn {
+export interface Checkin {
   id?: number;
-  date: string; // YYYY-MM-DD
+  date: string; 
+  mood: 'happy' | 'neutral' | 'sad' | 'stressed';
   stressLevel: number;
-  mood: string;
-  notes: string;
-  timestamp: Date;
-  // CAMPO ADICIONADO PARA CORRIGIR O ERRO:
-  breathingMinutes?: number; 
+  note: string;
+  breathingMinutes: number;
 }
 
-export class FlowManagerDB extends Dexie {
+export class FlowDatabase extends Dexie {
   tasks!: Table<Task>;
-  checkins!: Table<CheckIn>;
+  checkins!: Table<Checkin>; 
 
   constructor() {
-    super('FlowManagerDB');
+    super('FlowDatabase');
     
-    // Sua versão original
-    this.version(1).stores({
-      tasks: '++id, parentId, status, createdAt',
-      checkins: '++id, date'
-    });
-
-    // Versão 2: Atualiza o banco do navegador automaticamente para indexar o "order"
+    // Incrementamos para a versão 2 para aplicar as mudanças de estrutura
     this.version(2).stores({
       tasks: '++id, parentId, status, createdAt, order',
-      checkins: '++id, date'
+      checkins: '++id, date' 
     });
   }
 }
 
-export const db = new FlowManagerDB();
+export const db = new FlowDatabase();
