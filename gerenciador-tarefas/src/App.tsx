@@ -1,5 +1,5 @@
 // src/App.tsx
-import { useState, useEffect, createContext, useContext, useCallback } from 'react';
+import { useState, useEffect, createContext, useContext, useRef } from 'react';
 import { HashRouter, Routes, Route, Link, useLocation } from 'react-router-dom';
 import { TaskList } from './components/TaskList';
 import { FocusSession } from './components/FocusSession';
@@ -8,7 +8,7 @@ import { About } from './components/About';
 import { CloudGate } from './components/CloudGate'; 
 import { DataManagementModal } from './components/DataManagementModal'; 
 import { Brain, LayoutGrid, CheckSquare, Info, Cloud, Eye } from 'lucide-react';
-import { db } from './db'; // <-- Precisamos importar o banco para checar se há tarefas rodando
+import { db } from './db'; 
 
 export const ReadOnlyContext = createContext(false);
 
@@ -32,7 +32,6 @@ function LayoutFrame({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      // Se a variável pular checagem for verdadeira, deixa fechar/recarregar direto!
       if ((window as any).skipUnloadCheck) return; 
       
       e.preventDefault();
@@ -97,51 +96,48 @@ function App() {
   };
 
   // ====================================================================
-  // CONTROLE DE INATIVIDADE (AUTO-LOGOUT)
+  // CONTROLE DE INATIVIDADE (AUTO-LOGOUT) FINAL / LIMPO
   // ====================================================================
-  const checkIdleLogout = useCallback(async () => {
-    // 1. Verifica se não está no modo de leitura (pois leitura não precisa deslogar)
-    // 2. E verifica se ele já passou do portão
-    if (isReadOnly || !hasPassedGate) return;
-
-    try {
-      // Conta quantas tarefas estão rodando o cronômetro
-      const activeTasksCount = await db.tasks.where('status').equals('in_progress').count();
-      
-      // Se NENHUMA tarefa estiver rodando, nós expulsamos o usuário por inatividade
-      if (activeTasksCount === 0) {
-        console.log("Inatividade detectada. Sessão encerrada.");
-        setHasPassedGate(false); // Expulsa para a tela do Google Login
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  }, [isReadOnly, hasPassedGate]);
+  const lastActivityRef = useRef(Date.now());
 
   useEffect(() => {
-    let idleTimer: ReturnType<typeof setTimeout>;
-    
-    // Tempo limite: 15 Minutos (15 * 60 * 1000 milissegundos)
-    const IDLE_TIMEOUT_MS = 1 * 60 * 1000;
-
-    const resetIdleTimer = () => {
-      clearTimeout(idleTimer);
-      // Agenda a checagem para daqui a 15 minutos
-      idleTimer = setTimeout(checkIdleLogout, IDLE_TIMEOUT_MS);
-    };
-
-    // Fica de olho se o usuário mexe o mouse, clica, digita ou rola a tela
+    const updateActivity = () => { lastActivityRef.current = Date.now(); };
     const events = ['mousemove', 'keydown', 'mousedown', 'scroll', 'touchstart'];
-    events.forEach(e => window.addEventListener(e, resetIdleTimer));
-    
-    // Inicia a contagem inicial
-    resetIdleTimer();
 
-    return () => {
-      clearTimeout(idleTimer);
-      events.forEach(e => window.removeEventListener(e, resetIdleTimer));
-    };
-  }, [checkIdleLogout]);
+    events.forEach(e => window.addEventListener(e, updateActivity, { passive: true }));
+    updateActivity();
+
+    return () => events.forEach(e => window.removeEventListener(e, updateActivity));
+  }, []);
+
+  useEffect(() => {
+    if (isReadOnly || !hasPassedGate) return;
+
+    // Tempo limite de inatividade: 15 Minutos (15 * 60 * 1000)
+    const IDLE_TIMEOUT_MS = 15 * 60 * 1000; 
+
+    const checkIdleInterval = setInterval(async () => {
+      const timeSinceLastActivity = Date.now() - lastActivityRef.current;
+
+      if (timeSinceLastActivity >= IDLE_TIMEOUT_MS) {
+        try {
+          const activeTasksCount = await db.tasks.where('status').equals('in_progress').count();
+
+          if (activeTasksCount === 0) {
+            console.log("Inatividade detectada. Sessão encerrada.");
+            setHasPassedGate(false); // Expulsa para a tela de login
+          } else {
+            // Se há um cronómetro a rodar, renovamos o tempo em silêncio
+            lastActivityRef.current = Date.now();
+          }
+        } catch (e) {
+          console.error("Erro ao verificar tarefas ativas:", e);
+        }
+      }
+    }, 10000); // Acorda a cada 10 segundos de forma silenciosa e invisível
+
+    return () => clearInterval(checkIdleInterval);
+  }, [isReadOnly, hasPassedGate]);
   // ====================================================================
 
   return (

@@ -42,7 +42,6 @@ function FocusSessionInner({ taskId }: { taskId: number }) {
   const editorRef = useRef<HTMLDivElement>(null);
   const isNotesLoadedRef = useRef(false);
 
-  // NOVO: Estado para controlar qual subtarefa está sendo arrastada
   const [draggedSubtaskId, setDraggedSubtaskId] = useState<number | null>(null);
 
   useEffect(() => { 
@@ -55,29 +54,20 @@ function FocusSessionInner({ taskId }: { taskId: number }) {
       isNotesLoadedRef.current = false;
   }, [viewedTaskId]);
   
-
-  // Queries
   const allTasks = useLiveQuery(() => db.tasks.toArray());
   const activeTask = useLiveQuery(() => db.tasks.get(ACTIVE_TASK_ID), [ACTIVE_TASK_ID]);
   const viewedTask = useLiveQuery(() => db.tasks.get(viewedTaskId), [viewedTaskId]);
-  
   
   const subtasks = useLiveQuery(() => 
     db.tasks.where('parentId').equals(viewedTaskId).toArray()
   , [viewedTaskId]);
   
-  // ATUALIZADO: Ordenar subtarefas considerando o campo "order"
   const sortedSubtasks = subtasks?.sort((a, b) => {
-    // 1. Prioridade para tarefas concluídas irem para o final
     if (a.status === 'done' && b.status !== 'done') return 1;
     if (a.status !== 'done' && b.status === 'done') return -1;
-    
-    // 2. Ordem customizada pelo Drag and Drop
     const orderA = a.order ?? 999999;
     const orderB = b.order ?? 999999;
     if (orderA !== orderB) return orderA - orderB;
-
-    // 3. Fallback: Data de criação
     return a.createdAt.getTime() - b.createdAt.getTime();
   });
 
@@ -93,11 +83,11 @@ function FocusSessionInner({ taskId }: { taskId: number }) {
     return path;
   }, [allTasks, viewedTask]);
 
-  // Estados
   const [isSessionActive, setIsSessionActive] = useState(false);
   const [isCountdownActive, setIsCountdownActive] = useState(false);
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [showPreSession, setShowPreSession] = useState(false);
+  const [showTimeUpModal, setShowTimeUpModal] = useState(false); // <-- NOVO ESTADO AQUI
   
   const startTimeRef = useRef<Date | null>(null);
   const isSessionActiveRef = useRef(false);
@@ -131,13 +121,11 @@ function FocusSessionInner({ taskId }: { taskId: number }) {
       setNotes(desc);
       notesRef.current = desc;
       setLoadedTaskId(viewedTaskId);
-      isNotesLoadedRef.current = true; // <--- SINALIZA QUE FOI CARREGADO COM SUCESSO
+      isNotesLoadedRef.current = true;
   }
 }, [viewedTask, viewedTaskId, loadedTaskId]);
 
   const saveCurrentNotes = async () => {
-  // Se as notas ainda não foram carregadas, ABORTE o salvamento!
-  // Isso evita que um texto vazio sobrescreva o banco acidentalmente.
   if (!isNotesLoadedRef.current) return; 
 
   const currentId = viewedTaskIdRef.current;
@@ -243,7 +231,12 @@ function FocusSessionInner({ taskId }: { taskId: number }) {
         }
         if (isCountdownActive && !isEditingTime) {
             setTimeLeft(prev => {
-                if (prev <= 1) { playAlarm(); setIsCountdownActive(false); return 0; }
+                if (prev <= 1) { 
+                    playAlarm(); 
+                    setIsCountdownActive(false); 
+                    setShowTimeUpModal(true); // <-- CHAMA O POPUP AQUI
+                    return 0; 
+                }
                 return prev - 1;
             });
         }
@@ -299,7 +292,6 @@ function FocusSessionInner({ taskId }: { taskId: number }) {
         if (!titleToAdd || !viewedTask?.id) return;
         setNewSubtaskTitle(""); 
         
-        // Define a ordem da nova tarefa como o último da lista
         const lastOrder = sortedSubtasks && sortedSubtasks.length > 0 
             ? Math.max(...sortedSubtasks.map(t => t.order || 0)) 
             : 0;
@@ -312,7 +304,6 @@ function FocusSessionInner({ taskId }: { taskId: number }) {
     } 
   };
 
-  // --- NOVO: FUNÇÕES DE DRAG AND DROP (SUBTAREFAS) ---
   const handleDragStart = (e: React.DragEvent, id: number) => {
       setDraggedSubtaskId(id);
       e.dataTransfer.effectAllowed = "move";
@@ -336,7 +327,6 @@ function FocusSessionInner({ taskId }: { taskId: number }) {
       const [movedItem] = currentList.splice(oldIndex, 1);
       currentList.splice(newIndex, 0, movedItem);
 
-      // Atualiza a ordem mantendo a prioridade no Dexie
       const updates = currentList.map((task, index) => ({
           ...task,
           order: index 
@@ -357,15 +347,11 @@ function FocusSessionInner({ taskId }: { taskId: number }) {
     
     if (target.tagName === 'INPUT' && target.getAttribute('type') === 'checkbox') {
         const checkbox = target as HTMLInputElement;
-        
-        // Sincroniza o atributo HTML com a propriedade de estado atual do DOM
         if (checkbox.checked) {
             checkbox.setAttribute('checked', 'true');
         } else {
             checkbox.removeAttribute('checked');
         }
-        
-        // Atualiza os estados e refs com o HTML modificado
         if (editorRef.current) {
             const html = editorRef.current.innerHTML;
             setNotes(html);
@@ -429,7 +415,6 @@ function FocusSessionInner({ taskId }: { taskId: number }) {
             </div>
             {!isReadOnly && (
             <div className="flex-1 flex flex-col items-end justify-center gap-4">
-                
                 <div className="flex items-center gap-3">
                     <button onClick={handlePlayClick} className={`h-12 px-6 rounded-xl flex items-center justify-center gap-2 transition-all shadow-sm font-bold text-sm ${isSessionActive ? 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200 border border-yellow-200' : 'bg-blue-600 text-white hover:bg-blue-700 shadow-blue-200'}`}>{isSessionActive ? <><Pause size={18} fill="currentColor" /> PAUSAR</> : <><Play size={18} fill="currentColor" /> INICIAR</>}</button>
                     <button onClick={attemptExit} className="w-12 h-12 rounded-xl bg-white border-2 border-red-50 text-red-400 hover:border-red-500 hover:bg-red-500 hover:text-white transition-all flex items-center justify-center" title="Parar e Sair"><StopCircle size={20} /></button>
@@ -438,12 +423,10 @@ function FocusSessionInner({ taskId }: { taskId: number }) {
                     <button onClick={toggleNoise} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${isNoisePlaying ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>{isNoisePlaying ? <Volume2 size={14} /> : <VolumeX size={14} />} <span className="hidden lg:inline">Foco Sonoro</span></button>
                     <button onClick={() => { if(isSessionActive) handlePlayClick(); setIsBreathing(true); }} className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"><Wind size={14} /> <span className="hidden lg:inline">Respirar</span></button>
                 </div>
-                
             </div>
             )}
         </div>
 
-        {/* BARRA DE AVISO */}
         {isViewingOther && (
             <div className="mb-4 bg-blue-50 border border-blue-100 p-3 rounded-xl flex items-center justify-between animate-in fade-in slide-in-from-top-2 flex-shrink-0">
                 <div className="flex items-center gap-3">
@@ -460,122 +443,94 @@ function FocusSessionInner({ taskId }: { taskId: number }) {
             </div>
         )}
 
-        {/* =========================================================
-            COLUNAS INVERTIDAS
-            ESQUERDA: EDITOR + RECURSOS (span 4)
-            DIREITA: SUBTAREFAS (span 8)
-            ========================================================= */}
-        <div className="flex-1 grid grid-cols-1 md:grid-cols-12 gap-4 min-h-0">
-            
-            {/* COLUNA ESQUERDA (Editor e Recursos) */}
-            <div className="col-span-1 md:col-span-4 flex flex-col gap-3 h-full min-h-0">
+        <div className="flex-1 overflow-y-auto md:overflow-hidden min-h-0 pb-12 md:pb-0 pr-1 md:pr-0">
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-4 md:h-full">
                 
-                {/* Editor */}
-                <div className={`bg-white rounded-2xl shadow-sm border flex flex-col overflow-hidden relative group flex-1 min-h-[300px] transition-colors ${isViewingOther ? 'border-blue-100 ring-2 ring-blue-50' : 'border-gray-100'}`}>
-                    <div className="p-3 border-b border-gray-50 bg-gray-50/50 flex justify-between items-center flex-shrink-0">
-                        <div className="flex items-center gap-4">
-                            <span className="text-xs font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
-                                {isViewingOther ? <Eye size={12} className="text-blue-400"/> : null}
-                                Notas de: <span className="text-gray-700">{viewedTask.title}</span>
+                <div className="col-span-1 md:col-span-4 flex flex-col gap-3 order-2 md:order-1 h-auto md:h-full">
+                    
+                    <div className={`bg-white rounded-2xl shadow-sm border flex flex-col overflow-hidden relative group flex-1 min-h-[300px] md:min-h-0 transition-colors ${isViewingOther ? 'border-blue-100 ring-2 ring-blue-50' : 'border-gray-100'}`}>
+                        <div className="p-3 border-b border-gray-50 bg-gray-50/50 flex justify-between items-center flex-shrink-0">
+                            <div className="flex items-center gap-4">
+                                <span className="text-xs font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                                    {isViewingOther ? <Eye size={12} className="text-blue-400"/> : null}
+                                    Notas de: <span className="text-gray-700">{viewedTask.title}</span>
+                                </span>
+                                {!isReadOnly && (
+                                <div className="flex items-center gap-1 border-l border-gray-200 pl-4">
+                                    <button onClick={() => handleFormat('bold')} className="p-1.5 text-gray-500 hover:text-gray-800 hover:bg-gray-200 rounded transition-colors" title="Negrito (Ctrl+B)"><Bold size={14} /></button>
+                                    <button onClick={() => handleFormat('insertUnorderedList')} className="p-1.5 text-gray-500 hover:text-gray-800 hover:bg-gray-200 rounded transition-colors" title="Criar Lista"><List size={14} /></button>
+                                    <button onClick={applyChecklist} className="p-1.5 text-gray-500 hover:text-gray-800 hover:bg-gray-200 rounded transition-colors" title="Adicionar Checkbox"><CheckSquare size={14} /></button>
+                                </div>
+                                )}
+                            </div>
+                            <span className="text-[10px] text-gray-400">
+                                {notes.replace(/<[^>]*>?/gm, '').length} caracteres
                             </span>
-                            {!isReadOnly && (
-                            <div className="flex items-center gap-1 border-l border-gray-200 pl-4">
-                                <button 
-                                    onClick={() => handleFormat('bold')} 
-                                    className="p-1.5 text-gray-500 hover:text-gray-800 hover:bg-gray-200 rounded transition-colors" 
-                                    title="Negrito (Ctrl+B)"
-                                >
-                                    <Bold size={14} />
-                                </button>
-                                <button 
-                                    onClick={() => handleFormat('insertUnorderedList')} 
-                                    className="p-1.5 text-gray-500 hover:text-gray-800 hover:bg-gray-200 rounded transition-colors" 
-                                    title="Criar Lista"
-                                >
-                                    <List size={14} />
-                                </button>
-                                <button 
-                                    onClick={applyChecklist} 
-                                    className="p-1.5 text-gray-500 hover:text-gray-800 hover:bg-gray-200 rounded transition-colors" 
-                                    title="Adicionar Checkbox"
-                                >
-                                    <CheckSquare size={14} />
-                                </button>
-                            </div>
-                            )}
                         </div>
-                        <span className="text-[10px] text-gray-400">
-                            {notes.replace(/<[^>]*>?/gm, '').length} caracteres
-                        </span>
+
+                        <div 
+                            ref={editorRef}
+                            contentEditable={!isReadOnly}
+                            onInput={handleEditorInput}
+                            onClick={handleCheckboxInteraction}   
+                            onChange={handleCheckboxInteraction}
+                            data-placeholder={`Ideias sobre ${viewedTask.title}...`} 
+                            className="flex-1 w-full h-full p-4 outline-none text-gray-700 text-sm leading-relaxed font-normal overflow-y-auto empty:before:content-[attr(data-placeholder)] empty:before:text-gray-300 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_b]:font-bold [&_strong]:font-bold" 
+                            spellCheck={false} 
+                        />
                     </div>
 
-                    <div 
-                        ref={editorRef}
-                        contentEditable={!isReadOnly}
-                        onInput={handleEditorInput}
-                        onClick={handleCheckboxInteraction}   
-                        onChange={handleCheckboxInteraction}
-                        data-placeholder={`Ideias sobre ${viewedTask.title}...`} 
-                        className="flex-1 w-full h-full p-4 outline-none text-gray-700 text-sm leading-relaxed font-normal overflow-y-auto empty:before:content-[attr(data-placeholder)] empty:before:text-gray-300 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_b]:font-bold [&_strong]:font-bold" 
-                        spellCheck={false} 
-                    />
-                </div>
-
-                {/* Recursos */}
-                <div className={`flex-none min-h-[250px] rounded-xl border shadow-sm transition-colors ${isViewingOther ? 'border-blue-100 ring-2 ring-blue-50' : 'border-gray-100'}`}>
-                    <TaskResources task={viewedTask} />
-                </div>
-            </div>
-
-            {/* COLUNA DIREITA (Breadcrumbs e Subtarefas) */}
-            <div className={`col-span-1 md:col-span-8 flex flex-col bg-white rounded-xl border p-4 shadow-sm transition-colors h-full min-h-0 ${isViewingOther ? 'border-blue-100 ring-2 ring-blue-50' : 'border-gray-100'}`}>
-                
-                {/* Breadcrumbs */}
-                <div className="flex flex-col items-start justify-between mb-3 border-b border-gray-100 pb-2 gap-2 flex-shrink-0">
-                    <div className="flex items-center flex-wrap gap-1 text-xs text-gray-500 w-full">
-                        <button onClick={() => handleSmartNavigate(activeTask.id!)} className={`hover:text-blue-600 hover:bg-blue-50 px-1 py-0.5 rounded transition-colors flex items-center gap-1 ${activeTask.id === viewedTaskId ? 'text-blue-600 font-bold' : ''}`}><Home size={10} /> Início</button>
-                        {breadcrumbs.length > 0 && <ChevronRight size={10} className="text-gray-300" />}
-                        {breadcrumbs.map((crumb) => (
-                            <div key={crumb.id} className="flex items-center gap-1">
-                                <button onClick={() => handleSmartNavigate(crumb.id!)} className="hover:text-blue-600 hover:bg-blue-50 px-1 py-0.5 rounded transition-colors truncate max-w-[120px]" title={crumb.title}>{crumb.title}</button>
-                                <ChevronRight size={10} className="text-gray-300" />
-                            </div>
-                        ))}
-                        {isViewingOther && (<span className="font-bold text-gray-800 bg-gray-100 px-1.5 py-0.5 rounded truncate max-w-[200px]" title={viewedTask.title}>{viewedTask.title}</span>)}
+                    <div className={`flex-none min-h-[250px] md:min-h-0 rounded-xl border shadow-sm transition-colors ${isViewingOther ? 'border-blue-100 ring-2 ring-blue-50' : 'border-gray-100'}`}>
+                        <TaskResources task={viewedTask} />
                     </div>
                 </div>
 
-                {/* Subtarefas */}
-                <div className="flex-1 overflow-y-auto space-y-1 pr-2 min-h-0">
-                    {sortedSubtasks?.length === 0 && <div className="text-center py-8 text-gray-400 text-xs italic">Sem subtarefas.</div>}
+                <div className={`col-span-1 md:col-span-8 flex flex-col bg-white rounded-xl border p-4 shadow-sm transition-colors order-1 md:order-2 h-[450px] md:h-full min-h-0 ${isViewingOther ? 'border-blue-100 ring-2 ring-blue-50' : 'border-gray-100'}`}>
                     
-                    {sortedSubtasks?.map((sub, index) => {
-                        const isDragging = draggedSubtaskId === sub.id;
+                    <div className="flex flex-col items-start justify-between mb-3 border-b border-gray-100 pb-2 gap-2 flex-shrink-0">
+                        <div className="flex items-center flex-wrap gap-1 text-xs text-gray-500 w-full">
+                            <button onClick={() => handleSmartNavigate(activeTask.id!)} className={`hover:text-blue-600 hover:bg-blue-50 px-1 py-0.5 rounded transition-colors flex items-center gap-1 ${activeTask.id === viewedTaskId ? 'text-blue-600 font-bold' : ''}`}><Home size={10} /> Início</button>
+                            {breadcrumbs.length > 0 && <ChevronRight size={10} className="text-gray-300" />}
+                            {breadcrumbs.map((crumb) => (
+                                <div key={crumb.id} className="flex items-center gap-1">
+                                    <button onClick={() => handleSmartNavigate(crumb.id!)} className="hover:text-blue-600 hover:bg-blue-50 px-1 py-0.5 rounded transition-colors truncate max-w-[120px]" title={crumb.title}>{crumb.title}</button>
+                                    <ChevronRight size={10} className="text-gray-300" />
+                                </div>
+                            ))}
+                            {isViewingOther && (<span className="font-bold text-gray-800 bg-gray-100 px-1.5 py-0.5 rounded truncate max-w-[200px]" title={viewedTask.title}>{viewedTask.title}</span>)}
+                        </div>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto space-y-1 pr-2 min-h-0">
+                        {sortedSubtasks?.length === 0 && <div className="text-center py-8 text-gray-400 text-xs italic">Sem subtarefas.</div>}
                         
-                        return (
-                            <div 
-                                key={sub.id} 
-                                className={`scale-[0.98] origin-left transition-all ${isDragging ? 'opacity-40 ring-2 ring-blue-400 rounded-xl' : ''}`}
-                                draggable={!isReadOnly}
-                                onDragStart={(e) => sub.id && handleDragStart(e, sub.id)}
-                                onDragOver={handleDragOver}
-                                onDrop={(e) => sub.id && handleDrop(e, sub.id)}
-                            >
-                                {/* ADICIONADO O INDEXSTRING AQUI */}
-                                <TaskItem task={sub} onNavigate={handleSmartNavigate} indexString={`${index + 1}.`} />
+                        {sortedSubtasks?.map((sub, index) => {
+                            const isDragging = draggedSubtaskId === sub.id;
+                            
+                            return (
+                                <div 
+                                    key={sub.id} 
+                                    className={`scale-[0.98] origin-left transition-all ${isDragging ? 'opacity-40 ring-2 ring-blue-400 rounded-xl' : ''}`}
+                                    draggable={!isReadOnly}
+                                    onDragStart={(e) => sub.id && handleDragStart(e, sub.id)}
+                                    onDragOver={handleDragOver}
+                                    onDrop={(e) => sub.id && handleDrop(e, sub.id)}
+                                >
+                                    <TaskItem task={sub} onNavigate={handleSmartNavigate} indexString={`${index + 1}.`} />
+                                </div>
+                            );
+                        })}
+                        
+                        {!isReadOnly && (
+                            <div className="flex items-center gap-2 mt-2 px-2 py-1 bg-gray-50 rounded-lg focus-within:ring-2 focus-within:ring-blue-100 flex-shrink-0">
+                                <Plus className="text-gray-400" size={14} />
+                                <input type="text" placeholder="Adicionar passo..." className="w-full bg-transparent text-sm outline-none text-gray-600 placeholder-gray-400" value={newSubtaskTitle} onChange={(e) => setNewSubtaskTitle(e.target.value)} onKeyDown={handleAddSubtask} />
                             </div>
-                        );
-                    })}
-                    
-                    {!isReadOnly && (
-                        <div className="flex items-center gap-2 mt-2 px-2 py-1 bg-gray-50 rounded-lg focus-within:ring-2 focus-within:ring-blue-100 flex-shrink-0">
-                            <Plus className="text-gray-400" size={14} />
-                            <input type="text" placeholder="Adicionar passo..." className="w-full bg-transparent text-sm outline-none text-gray-600 placeholder-gray-400" value={newSubtaskTitle} onChange={(e) => setNewSubtaskTitle(e.target.value)} onKeyDown={handleAddSubtask} />
-                        </div>
-                    )}
+                        )}
+                    </div>
                 </div>
-            </div>
 
+            </div>
         </div>
       </div>
       
@@ -583,6 +538,37 @@ function FocusSessionInner({ taskId }: { taskId: number }) {
       <PreSessionModal isOpen={showPreSession} onCancel={() => setShowPreSession(false)} onStart={startSessionConfirmed} />
       
       {showExitConfirm && (<div className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200"><div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full"><div className="flex flex-col items-center text-center gap-4"><div className="w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center text-yellow-600"><AlertTriangle size={24} /></div><div><h3 className="text-lg font-bold text-gray-800">Sessão em Andamento!</h3><p className="text-sm text-gray-500 mt-1">O cronômetro ainda está rodando. Se sair agora, o tempo será salvo.</p></div><div className="flex gap-3 w-full mt-2"><button onClick={() => setShowExitConfirm(false)} className="flex-1 py-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 font-medium">Cancelar</button><button onClick={manualExit} className="flex-1 py-2 rounded-lg bg-gray-800 text-white hover:bg-gray-900 font-medium">Salvar e Sair</button></div></div></div></div>)}
+      
+      {/* NOVO: MODAL DE TEMPO ESGOTADO */}
+      {showTimeUpModal && (
+        <div className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full">
+            <div className="flex flex-col items-center text-center gap-4">
+              <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center text-blue-600">
+                <Clock size={24} />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-gray-800">Tempo Esgotado!</h3>
+                <p className="text-sm text-gray-500 mt-1">O tempo predeterminado para esta sessão chegou ao fim.</p>
+              </div>
+              <div className="flex gap-3 w-full mt-2">
+                <button onClick={() => setShowTimeUpModal(false)} className="flex-1 py-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 font-medium">
+                  Fechar
+                </button>
+                <button 
+                  onClick={() => { 
+                    setShowTimeUpModal(false); 
+                    setSessionTime(sessionDuration / 60); 
+                  }} 
+                  className="flex-1 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 font-medium flex items-center justify-center gap-2"
+                >
+                  <RotateCcw size={16} /> Reiniciar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
