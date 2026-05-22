@@ -7,9 +7,9 @@ import { Dashboard } from './components/Dashboard';
 import { About } from './components/About';
 import { CloudGate } from './components/CloudGate'; 
 import { DataManagementModal } from './components/DataManagementModal'; 
-import { DeadlineAlertModal } from './components/DeadlineAlertModal'; // <-- IMPORTANTE
+import { DeadlineAlertModal } from './components/DeadlineAlertModal'; 
 import { Brain, LayoutGrid, CheckSquare, Info, Cloud, Eye } from 'lucide-react';
-import { db, type Task, type TaskResource } from './db';
+import { db} from './db';
 
 export const ReadOnlyContext = createContext(false);
 
@@ -52,7 +52,9 @@ function LayoutFrame({ children }: { children: React.ReactNode }) {
                 </div>
                 <h1 className="text-lg font-semibold tracking-tight hidden md:block">Flow Manager</h1>
             </Link>
-            <nav className="flex items-center gap-2 hidden sm:flex">
+            
+            {/* CORREÇÃO AQUI: Removido o 'hidden sm:flex' para o menu aparecer no celular */}
+            <nav className="flex items-center gap-2">
                 <NavLink to="/" icon={CheckSquare} label="Projetos" />
                 <NavLink to="/dashboard" icon={LayoutGrid} label="Dashboard" />
                 <NavLink to="/about" icon={Info} label="Sobre" />
@@ -91,7 +93,6 @@ function App() {
   const [hasPassedGate, setHasPassedGate] = useState(false);
   const [isReadOnly, setIsReadOnly] = useState(false);
   
-  // Estados para o modal de alerta de prazos
   const [showDeadlineModal, setShowDeadlineModal] = useState(false);
   const [urgentTasks, setUrgentTasks] = useState<any[]>([]);
 
@@ -99,7 +100,6 @@ function App() {
     setIsReadOnly(readOnlyMode);
     setHasPassedGate(true);
     
-    // VERIFICAÇÃO DE PRAZOS AO LOGAR
     const all = await db.tasks.toArray();
     const urgent = all
         .filter(t => t.deadline && t.status !== 'done')
@@ -107,7 +107,7 @@ function App() {
             ...t, 
             daysLeft: Math.ceil((new Date(t.deadline!).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)) 
         }))
-        .filter(t => t.daysLeft <= 30) // Mostra se faltam 3 dias ou menos
+        .filter(t => t.daysLeft <= 30) 
         .sort((a, b) => a.daysLeft - b.daysLeft);
 
     if (urgent.length > 0) {
@@ -116,9 +116,6 @@ function App() {
     }
   };
 
-  // ====================================================================
-  // CONTROLE DE INATIVIDADE (AUTO-LOGOUT)
-  // ====================================================================
   const lastActivityRef = useRef(Date.now());
 
   useEffect(() => {

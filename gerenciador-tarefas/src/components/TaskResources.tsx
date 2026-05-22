@@ -1,5 +1,5 @@
 // src/components/TaskResources.tsx
-import { useRef, useContext, useState } from 'react';
+import { useContext, useState } from 'react';
 import { Folder, Link as LinkIcon, FileText, HardDrive, Trash2, Copy, ExternalLink } from 'lucide-react';
 import { db, type Task, type TaskResource } from '../db';
 import { ReadOnlyContext } from '../App';
@@ -11,7 +11,7 @@ interface Props {
 type ModalType = 'link' | 'folder' | 'file';
 
 export function TaskResources({ task }: Props) {
-  const fileInputRef = useRef<HTMLInputElement>(null);
+ 
   const isReadOnly = useContext(ReadOnlyContext);
 
   // Estados do Modal

@@ -2,7 +2,7 @@
 import { useEffect, useState, useRef, useMemo, useContext } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, type Task, type TaskResource } from '../db';
+import { db, type Task} from '../db';
 import { 
   Play, Pause, ArrowLeft, StopCircle, Clock, Plus, AlertTriangle, 
   Eye, ArrowUpRight, Home, ChevronRight, Volume2, VolumeX, Wind, RotateCcw,

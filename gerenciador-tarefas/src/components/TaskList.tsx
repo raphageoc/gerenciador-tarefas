@@ -1,7 +1,7 @@
 // src/components/TaskList.tsx
 import { useState, useMemo, useRef, useEffect, useContext } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, type Task, type TaskResource } from '../db';
+import { db, type Task } from '../db';
 import { 
   Plus, Search, ChevronRight, ChevronDown, 
   Layout, X, Check, CornerDownRight, Database, GripVertical 

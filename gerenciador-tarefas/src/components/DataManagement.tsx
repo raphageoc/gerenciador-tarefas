@@ -1,6 +1,6 @@
 // src/components/DataManagement.tsx
 import { useState, useRef } from 'react';
-import { db, type Task } from '../db';
+import { db} from '../db';
 
 import { Download, Trash2, UploadCloud, RefreshCw } from 'lucide-react';
 

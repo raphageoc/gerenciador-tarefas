@@ -2,7 +2,7 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useNavigate } from 'react-router-dom'; // 1. IMPORTADO
-import { db, type Task, type TaskResource } from '../db';
+import { db, type Task} from '../db';
 import { 
   Clock, Activity, Calendar, Hourglass, AlertTriangle, 
   CornerDownRight, Layers, ChevronDown, Search, X, Check, CalendarDays, MessageSquare, Quote, Brain, Network 

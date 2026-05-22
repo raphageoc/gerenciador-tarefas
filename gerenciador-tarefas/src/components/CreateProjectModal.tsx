@@ -1,7 +1,7 @@
 // src/components/CreateProjectModal.tsx
 import { useState, useEffect } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, type Task } from '../db';
+import { db} from '../db';
 import { X, Copy, Plus, FolderPlus } from 'lucide-react';
 
 interface Props {

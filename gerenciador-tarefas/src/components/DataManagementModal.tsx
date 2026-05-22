@@ -1,6 +1,6 @@
 // src/components/DataManagementModal.tsx
 import { useState, useRef } from 'react';
-import { db, type Task, type TaskResource } from '../db';
+import { db } from '../db';
 import { 
     X, Download, Upload, Trash2, Database, 
     CheckCircle2, Cloud, LogOut, AlertTriangle 

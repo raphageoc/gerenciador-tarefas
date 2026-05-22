@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { useGoogleLogin } from '@react-oauth/google';
 import { Brain, AlertTriangle, Cloud, Monitor, Unlock, ArrowRight, Info } from 'lucide-react';
-import { db, type Task } from '../db';
+import { db} from '../db';
 
 
 interface CloudGateProps {
